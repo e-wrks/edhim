@@ -41,7 +41,7 @@ data ChatAccessPoint = ChatAccessPoint {
     dismissAll :: IO () -- ^ the action to kick all chatters out
                -> IO () -- ^ the action installer
     , accomodateAgent :: (ChatUserAgent -> IO ()) -- ^ the entry
-                    -> IO () -- ^ the entry installer
+                      -> IO () -- ^ the entry installer
   }
 
 -- | Joint physics of a user agent in a chat world

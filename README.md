@@ -8,6 +8,13 @@ code even more concise than **Haskell** code.
 This repository can be used as the scaffold to start your **Haskell** +
 **Edh** software development, as well as to run the demo yourself.
 
+- [Quick Start](#quick-start)
+  - [Favouring Cabal](#favouring-cabal)
+  - [Favouring Stack](#favouring-stack)
+- [TLDR;](#tldr)
+  - [Full Đ Code](#full-%c4%90-code)
+  - [World modeling code in Haskell](#world-modeling-code-in-haskell)
+
 ## Quick Start
 
 ```shell
@@ -171,7 +178,7 @@ data ChatAccessPoint = ChatAccessPoint {
     dismissAll :: IO () -- ^ the action to kick all chatters out
                -> IO () -- ^ the action installer
     , accomodateAgent :: (ChatUserAgent -> IO ()) -- ^ the entry
-                    -> IO () -- ^ the entry installer
+                      -> IO () -- ^ the entry installer
   }
 
 -- | Joint physics of a user agent in a chat world
