@@ -16,7 +16,7 @@ This repository can be used as the scaffold to start your **Haskell** +
 - [Quick Start](#quick-start)
   - [Favouring Cabal](#favouring-cabal)
   - [Favouring Stack](#favouring-stack)
-- [TLDR;](#tldr)
+- [TL;DR](#tldr)
   - [Screenshots](#screenshots)
   - [Full Đ Code](#full-%c4%90-code)
   - [World modeling code in Haskell](#world-modeling-code-in-haskell)
@@ -43,7 +43,7 @@ export EDH_LOG_LEVEL=DEBUG
 stack run
 ```
 
-## TLDR;
+## TL;DR
 
 The usecase is the same as the
 [Chat Example](https://github.com/simonmar/par-tutorial/blob/master/code/chat/Main.hs)
