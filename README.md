@@ -5,6 +5,11 @@ _declarative_ and _imperative_ stylish, when put together, can make
 [**Đ (Edh)**](https://github.com/e-wrks/edh)
 code even more concise than **Haskell** code.
 
+**Đ (Edh)** code should be especially more _readable_/_modifiable_
+to average people without a
+[functional](https://github.com/e-wrks/edh#functional---try-not-to-abuse-this-concept)
+mindset, thus more maintainable by teams with diversified crew members.
+
 This repository can be used as the scaffold to start your **Haskell** +
 **Edh** software development, as well as to run the demo yourself.
 
