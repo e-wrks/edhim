@@ -12,7 +12,7 @@ This repository can be used as the scaffold to start your **Haskell** +
   - [Favouring Cabal](#favouring-cabal)
   - [Favouring Stack](#favouring-stack)
 - [TLDR;](#tldr)
-- [Screenshots](#screenshots)
+  - [Screenshots](#screenshots)
   - [Full Đ Code](#full-%c4%90-code)
   - [World modeling code in Haskell](#world-modeling-code-in-haskell)
 
@@ -51,7 +51,7 @@ so you use a web browser instead of
 [cli](https://en.wikipedia.org/wiki/Command-line_interface)
 to do chatting.
 
-## Screenshots
+### Screenshots
 
 ![edhim-demo-alice](https://user-images.githubusercontent.com/15646573/72426593-fd3d6b80-37c4-11ea-8e7d-bd8a1ec9e450.png)
 ![edhim-demo-bob](https://user-images.githubusercontent.com/15646573/72426594-fd3d6b80-37c4-11ea-873b-1a920e9b75c5.png)
