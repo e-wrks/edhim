@@ -18,7 +18,7 @@ This repository can be used as the scaffold to start your **Haskell** +
   - [Favouring Stack](#favouring-stack)
 - [TL;DR](#tldr)
   - [Screenshots](#screenshots)
-  - [Full Đ Code](#full-%c4%90-code)
+  - [Full Đ (Edh) Code](#full-%c4%90-edh-code)
   - [World modeling code in Haskell](#world-modeling-code-in-haskell)
 
 ## Quick Start
@@ -62,7 +62,7 @@ to do chatting.
 ![edhim-demo-bob](https://user-images.githubusercontent.com/15646573/72426594-fd3d6b80-37c4-11ea-873b-1a920e9b75c5.png)
 ![edhim-demo-console](https://user-images.githubusercontent.com/15646573/72426596-fd3d6b80-37c4-11ea-9339-10b9440911c4.png)
 
-### Full Đ Code
+### Full Đ (Edh) Code
 
 **95 LoC**
 https://github.com/e-wrks/edhim/blob/master/edh_modules/chat.edh
