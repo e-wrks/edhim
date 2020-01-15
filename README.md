@@ -1,4 +1,4 @@
-# EdhIm - Đ doing Instant Messaging
+# EdhIm - Đ (Edh) doing Instant Messaging
 
 This is a project demonstrating a few sweet spots found balanced between
 _declarative_ and _imperative_ stylish, when put together, can make
@@ -12,7 +12,7 @@ This repository can be used as the scaffold to start your **Haskell** +
 
 ```shell
 curl -L https://github.com/e-wrks/edhim/archive/master.tar.gz | tar xzf -
-mv edhim my-awsome-project
+mv edhim-master my-awsome-project
 cd my-awsome-project
 ```
 
@@ -43,4 +43,8 @@ to do chatting.
 
 ### Full Đ Code
 
-...
+https://github.com/e-wrks/edhim/blob/d12c409af0c3f8e5fc5bce61a9968d6c51dbe852/edh_modules/chat.edh#L2-L95
+
+### World modeling code in Haskell
+
+https://github.com/e-wrks/edhim/blob/d12c409af0c3f8e5fc5bce61a9968d6c51dbe852/edhim/src/ChatWorld.hs#L22-L210
