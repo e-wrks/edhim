@@ -1,0 +1,17 @@
+resolver: lts-14.15
+
+packages:
+  - edhim
+
+extra-deps:
+  # to use a version of Edh from github
+  # - url: https://github.com/e-wrks/edh/archive/0.1.0.0.tar.gz
+  #   subdirs:
+  #     - edh
+  #     - lossless-decimal
+
+  # to use the version of Edh checked out locally
+  - ../edh/edh
+  - ../edh/lossless-decimal
+
+  - megaparsec-8.0.0

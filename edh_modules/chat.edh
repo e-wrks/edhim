@@ -1,0 +1,95 @@
+
+# this boots the chat world
+class RunCtrl accessPoint {
+  chatters = {,}  # the dict of all chatters by name
+
+  method dismiss () {  # this is called on Ctrl^C at the console
+    runtime.info <| 'Dismissing all active chatters'
+    ai {  # use a tx, don't get a racing joining chatter lost/leaked
+      committee = this.chatters
+      this.chatters = {,}
+    }
+    for (_name, chatter) from committee do if chatter!=nil then
+      chatter.kicked <- 'server purge'
+  }
+
+  class Chat (incoming, out) {
+    kicked = sink  # create a new sink for kicked-out event
+
+    reactor kicked reason {
+      runtime.debug <| 'Done with ' ++name++ ' - ' ++reason
+      # posting a nil:<str> pair as the msg out, to trigger `cutoffHuman`
+      # mechanism defined for the agency model
+      out <- nil: if reason != nil
+        then "You have been kicked: " ++ reason
+        else ''
+      break  # `break` from a reactor breaks the thread, 'Chat' then stops
+    }
+
+    name = '<stranger>'  # to appear in the log on premature disconnection
+    out <- "What is your name?"
+    for name from incoming do case type(name) of {
+      StringType -> {
+        # use a tx to mediate naming contentions
+        ai case chatters[name] of nil -> {
+          chatters[name] = this
+          break  # to break the for-from-do loop
+        }
+        out <- "The name " ++name++ " is in use, please choose another"
+        # not doing fallthrough here, the loop will continue
+      }
+      # this chatter is destined to be kicked out, if reaching here
+      kicked <- case name of {
+        { cmd:_ } -> case cmd of {
+          'quit' -> nil  # human left without answering the name
+          fallthrough  # other malicious cmds
+        } 
+        runtime.warn <| 'Some one tried to use name: ' ++ name
+        'misbehaving, adversarial name - ' ++ name
+      }
+    }
+
+    defer {  # defered code is guaranteed to run on thread termination
+      runtime.debug <| 'Cleaning up for ' ++ name
+      # need a tx to not cleanup a later live chatter with same name
+      ai if chatters[name] == this then chatters[name] = nil
+    }
+  
+    for msg from incoming do case msg of {
+      name -> out <- ' 🎉 Welcome ' ++ name ++ '!'
+
+      { cmd:args } -> case cmd of {
+
+        'kick' -> case args of { { (who,) } -> case chatters[who] of {
+          nil -> out <- who ++ ' is not connected'
+          { chatter } -> {
+            chatter.kicked <- 'by ' ++ this.name
+            out <- 'you kicked ' ++ who
+          }
+        } out <- 'Invalid args to /kick: ' ++ args }
+
+        'tell' -> case args of { { (who, what) } -> case chatters[who] of {
+          nil -> out <- who ++ ' is not connected'
+          { chatter } -> chatter.out <- '*'++name++'*: ' ++ what
+        } out <- 'Invalid args to /tell: ' ++ args }
+
+        'quit' -> { out <- nil:'Bye!'; kicked <- nil }
+
+        out <- 'Unrecognised command: ' ++ msg
+      }
+
+      # run to here means none of the branches above matched, so it's a public
+      # message and let's broadcast it
+      # it's okay to use a snapshot of all live chatters, no tx here
+      for (_name, chatter) from chatters do if chatter!=nil then
+        chatter.out <- '<'++name++'>: ' ++ msg
+    }
+  }
+
+  # each time a new agent enters the chat world, a pair of sinks for its
+  # incoming and outgoing messages are posted through the sink of access point
+  method run () for (in, out) from accessPoint do {
+    go Chat(in, out)  # start a chatter thread to do the IO
+    in=nil out=nil  # unref so they're garbage-collectable after chat left
+  }
+}
