@@ -154,7 +154,7 @@ class RunCtrl accessPoint {
   # incoming and outgoing messages are posted through the sink of access point
   method run () for (in, out) from accessPoint do {
     go Chat(in, out)  # start a chatter thread to do the IO
-    in=nil out=nil  # unref so they're garbage-collectable after chat left
+    in=nil out=nil  # unref so they're garbage-collectable after chatter left
   }
 }
 ```
