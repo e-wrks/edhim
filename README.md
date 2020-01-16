@@ -18,9 +18,9 @@ This repository can be used as the scaffold to start your **Haskell** +
   - [Favouring Stack](#favouring-stack)
 - [TL;DR](#tldr)
   - [Screenshots](#screenshots)
-  - [Full Đ (Edh) Code](#full-%c4%90-edh-code)
-  - [World modeling code in Haskell](#world-modeling-code-in-haskell)
-  - [World reifying code in Haskell](#world-reifying-code-in-haskell)
+  - [Full Đ (Edh) code (95 LoC)](#full-%c4%90-edh-code-95-loc)
+  - [World modeling code in Haskell (190 LoC)](#world-modeling-code-in-haskell-190-loc)
+  - [World reifying code in Haskell (197 LoC)](#world-reifying-code-in-haskell-197-loc)
 
 ## Quick Start
 
@@ -63,9 +63,8 @@ to do chatting.
 ![edhim-demo-bob](https://user-images.githubusercontent.com/15646573/72426594-fd3d6b80-37c4-11ea-873b-1a920e9b75c5.png)
 ![edhim-demo-console](https://user-images.githubusercontent.com/15646573/72426596-fd3d6b80-37c4-11ea-9339-10b9440911c4.png)
 
-### Full Đ (Edh) Code
+### Full Đ (Edh) code (95 LoC)
 
-**95 LoC**
 https://github.com/e-wrks/edhim/blob/master/edh_modules/chat.edh
 
 ```haskell
@@ -166,9 +165,8 @@ class RunCtrl accessPoint {
 }
 ```
 
-### World modeling code in Haskell
+### World modeling code in Haskell (190 LoC)
 
-**190 LoC excluding imports**
 https://github.com/e-wrks/edhim/blob/master/edhim/src/ChatWorld.hs
 
 ```haskell
@@ -363,9 +361,8 @@ runChatWorld !accessPoint = defaultEdhLogger >>= createEdhWorld >>= \world ->
           <> T.pack (show malVal)
 ```
 
-### World reifying code in Haskell
+### World reifying code in Haskell (197 LoC)
 
-197 LoC excluding imports
 https://github.com/e-wrks/edhim/blob/master/edhim/src/Main.hs
 
 ```haskell
