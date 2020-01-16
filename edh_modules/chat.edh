@@ -1,5 +1,4 @@
-
-# this boots the chat world
+# this ctor bootstraps the chat world
 class RunCtrl accessPoint {
   chatters = {,}  # the dict of all chatters by name
 
@@ -86,10 +85,11 @@ class RunCtrl accessPoint {
     }
   }
 
-  # each time a new agent enters the chat world, a pair of sinks for its
-  # incoming and outgoing messages are posted through the sink of access point
-  method run () for (in, out) from accessPoint do {
-    go Chat(in, out)  # start a chatter thread to do the IO
-    in=nil out=nil  # unref so they're garbage-collectable after chatter left
-  }
+  method run ()  # this is the method to keep the world running
+    # each time a new agent enters the chat world, a pair of sinks for its
+    # incoming and outgoing messages are posted through the sink of access point
+    for (in, out) from accessPoint do {
+      go Chat(in, out)  # start a chatter thread to do the IO
+      in=nil out=nil  # unref so they're garbage-collectable after chatter left
+    }
 }

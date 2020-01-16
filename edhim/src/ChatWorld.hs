@@ -1,4 +1,6 @@
 
+-- | This module models an Edh world doing chat hosting business
+
 module ChatWorld where
 
 import           Prelude

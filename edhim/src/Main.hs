@@ -1,5 +1,18 @@
 {-# LANGUAGE QuasiQuotes #-}
 
+-- | This main module further reifies the modeled Edh world
+-- from 'ChatWorld' to run upon a technology stack at present
+-- (year 2020), i.e.
+--  *) POSIX
+--    *) process w/ signals
+--    *) network sockets
+--  *) the websockets toolkit
+--  *) the Snap http server
+--  *) HTML5 browser client
+--    *) CSS
+--    *) JavaScript
+--    *) WebSockets
+
 module Main
   ( main
   )

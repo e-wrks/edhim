@@ -20,6 +20,7 @@ This repository can be used as the scaffold to start your **Haskell** +
   - [Screenshots](#screenshots)
   - [Full Đ (Edh) Code](#full-%c4%90-edh-code)
   - [World modeling code in Haskell](#world-modeling-code-in-haskell)
+  - [World reifying code in Haskell](#world-reifying-code-in-haskell)
 
 ## Quick Start
 
@@ -68,7 +69,7 @@ to do chatting.
 https://github.com/e-wrks/edhim/blob/master/edh_modules/chat.edh
 
 ```haskell
-# this boots the chat world
+# this ctor bootstraps the chat world
 class RunCtrl accessPoint {
   chatters = {,}  # the dict of all chatters by name
 
@@ -155,12 +156,13 @@ class RunCtrl accessPoint {
     }
   }
 
-  # each time a new agent enters the chat world, a pair of sinks for its
-  # incoming and outgoing messages are posted through the sink of access point
-  method run () for (in, out) from accessPoint do {
-    go Chat(in, out)  # start a chatter thread to do the IO
-    in=nil out=nil  # unref so they're garbage-collectable after chatter left
-  }
+  method run ()  # this is the method to keep the world running
+    # each time a new agent enters the chat world, a pair of sinks for its
+    # incoming and outgoing messages are posted through the sink of access point
+    for (in, out) from accessPoint do {
+      go Chat(in, out)  # start a chatter thread to do the IO
+      in=nil out=nil  # unref so they're garbage-collectable after chatter left
+    }
 }
 ```
 
@@ -359,4 +361,209 @@ runChatWorld !accessPoint = defaultEdhLogger >>= createEdhWorld >>= \world ->
           <> T.pack (show $ edhTypeOf malVal)
           <> ": "
           <> T.pack (show malVal)
+```
+
+### World reifying code in Haskell
+
+197 LoC excluding imports
+https://github.com/e-wrks/edhim/blob/master/edhim/src/Main.hs
+
+```haskell
+servAddr = "0.0.0.0"
+wsPort = 8687
+httpPort = 8688
+
+servAddr :: Text
+wsPort, httpPort :: Int
+
+servWebSockets :: IO ()
+servWebSockets = runChatWorld $ ChatAccessPoint handleCtrlC $ \agentEntry -> do
+  let
+    acceptWSC sock = do
+      (conn, _) <- accept sock
+      void $ forkFinally (handleWSC conn) $ \wsResult -> do
+        case wsResult of
+          Left  exc -> consoleLog $ "WS error: " <> show exc
+          Right _   -> pure ()
+        close conn -- close the socket anyway
+      acceptWSC sock -- tail recursion
+
+    handleWSC conn = do
+      pconn <- WS.makePendingConnection conn
+        $ WS.defaultConnectionOptions { WS.connectionStrictUnicode = True }
+      wsc             <- WS.acceptRequest pconn
+      disconnectNotif <- newEmptyMVar
+      incomingMsg     <- newEmptyMVar
+      let
+        cutOff :: Text -> IO ()
+        cutOff !lastWords = handle noPanic $ do
+          WS.sendTextData wsc lastWords
+          WS.sendClose wsc lastWords
+        sendOut :: Text -> IO ()
+        sendOut = handle noPanic . WS.sendTextData wsc
+        noPanic :: SomeException -> IO ()
+        noPanic exc = trace ("WS unexpected: " <> show exc) $ return ()
+
+        keepReadingPkt = do
+          pkt <- WS.receiveDataMessage wsc
+          case pkt of
+            (WS.Text _bytes (Just pktText)) ->
+              tryReadMVar incomingMsg >>= \case
+                Nothing ->
+                  consoleLog $ "WS got: " <> T.unpack (TL.toStrict pktText)
+                Just !msgSink -> msgSink (TL.toStrict pktText)
+            (WS.Binary _bytes) -> WS.sendCloseCode wsc 1003 ("?!?" :: Text)
+            _                  -> WS.sendCloseCode wsc 1003 ("!?!" :: Text)
+-- https://hackage.haskell.org/package/websockets/docs/Network-WebSockets.html#v:sendCloseCode
+-- > you should continue calling receiveDataMessage until you receive a CloseRequest exception.
+          keepReadingPkt
+
+      agentEntry ChatUserAgent { cutoffHuman = cutOff
+                               , humanLeave  = putMVar disconnectNotif
+                               , toHuman     = sendOut
+                               , fromHuman   = putMVar incomingMsg
+                               }
+
+      keepReadingPkt `catch` \case
+        WS.CloseRequest closeCode closeReason ->
+          if closeCode == 1000 || closeCode == 1001
+            then pure ()
+            else
+              consoleLog
+              $  "WS closed with code "
+              <> show closeCode
+              <> " and reason ["
+              <> T.unpack (decodeUtf8 $ BL.toStrict closeReason)
+              <> "]"
+        WS.ConnectionClosed -> consoleLog "WS disconnected"
+        _                   -> consoleLog "WS unexpected error"
+
+      -- notify the world anyway
+      tryReadMVar disconnectNotif >>= sequence_
+
+  void $ forkIO $ withSocketsDo $ do
+    addr <- resolveWsAddr
+    bracket (open addr) close acceptWSC
+
+ where
+  resolveWsAddr = do
+    let hints =
+          defaultHints { addrFlags = [AI_PASSIVE], addrSocketType = Stream }
+    addr : _ <- getAddrInfo (Just hints)
+                            (Just $ T.unpack servAddr)
+                            (Just (show wsPort))
+    return addr
+  open addr = do
+    sock <- socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr)
+    setSocketOption sock ReuseAddr 1
+    bind sock (addrAddress addr)
+    listen sock 10
+    return sock
+
+
+-- | Triple Ctrl^C to kill the server; double Ctrl^C to quit the server;
+-- single Ctrl^C to dismiss all atm, i.e. a server purge.
+handleCtrlC :: IO () -> IO ()
+handleCtrlC !serverPurge = do
+  mainThId          <- myThreadId
+  cccVar            <- newIORef (0 :: Int) -- Ctrl^C Count
+  lastInterruptTime <- (sec <$> getTime Monotonic) >>= newIORef
+  let onCtrlC = do
+        lastSec <- readIORef lastInterruptTime
+        nowSec  <- sec <$> getTime Monotonic
+        writeIORef lastInterruptTime nowSec
+        if nowSec - lastSec < 2 -- count quickly repeated Ctrl^C clicks
+          then modifyIORef' cccVar (+ 1)
+          else writeIORef cccVar 1
+        ccc <- readIORef cccVar
+        if ccc >= 3 -- tripple click
+          then killThread mainThId
+          else if ccc >= 2 -- double click
+            then throwTo mainThId UserInterrupt
+            else -- single click
+                 serverPurge
+  void $ installHandler keyboardSignal (Catch onCtrlC) Nothing
+
+
+main :: IO ()
+main = do
+  void $ forkIO $ Snap.httpServe httpCfg $ Snap.path "" $ do
+    Snap.modifyResponse $ Snap.setContentType "text/html; charset=utf-8"
+    Snap.writeText html
+
+  -- we're handling Ctrl^C below for server purge action in the chat world,
+  -- it needs to run from the main thread, so snap http is forked to a side
+  -- thread above
+
+  servWebSockets
+
+ where
+
+  !httpCfg =
+    Snap.setBind (encodeUtf8 servAddr)
+      $ Snap.setPort httpPort
+      $ Snap.setStartupHook httpListening
+      $ Snap.setVerbose False
+      $ Snap.setAccessLog Snap.ConfigNoLog
+      $ Snap.setErrorLog (Snap.ConfigIoLog $ B.hPutStrLn stderr) mempty
+  httpListening httpInfo = do
+    listenAddrs <- sequence (getSocketName <$> Snap.getStartupSockets httpInfo)
+    consoleLog $ "Đ - Im available at: " <> unwords
+      (("http://" <>) . show <$> listenAddrs)
+
+  !(wsSuffix :: Text) = ":" <> T.pack (show wsPort)
+
+  -- html5 source for the single page app
+  !html = [text|
+<title>Đ (Edh) Im</title>
+<h3>Đ doing Instant Messaging
+<span style="float: right; font-size: 60%;">
+<a target="_blank" href="https://github.com/e-wrks/edhim">source</a></span>
+</h3>
+
+<div id="msg"></div>
+<input id="keyin" type="text" autofocus/>
+<style>
+  #msg { width: 90%; height: 60%; overflow: scroll; }
+  #msg>div { padding: 3pt 6pt; border: solid silver 1px; }
+  #keyin { margin: 6pt 3pt; width: 68%; }
+</style>
+<script type="module">
+  const msgDiv = document.getElementById('msg')
+  const keyinBox = document.getElementById('keyin')
+  const ws = new WebSocket("ws://" + location.hostname + "${wsSuffix}")
+
+  ws.onmessage = me => {
+    if ("string" !== typeof me.data) {
+      debugger;
+      throw "WS msg of type " + typeof me.data + " ?!";
+    }
+    let msgPane = document.createElement('pre')
+    msgPane.appendChild(document.createTextNode(me.data))
+    let msgRecord = document.createElement('div')
+    msgRecord.appendChild(document.createTextNode('💬 ' + new Date()))
+    msgRecord.appendChild(msgPane)
+    msgDiv.appendChild(msgRecord)
+    msgDiv.scrollTop = msgDiv.scrollHeight
+  }
+
+  keyinBox.addEventListener('keydown', function onEvent(evt) {
+    if (evt.key === "Enter") {
+      if(ws.readyState !== WebSocket.OPEN) {
+        alert(
+          `You've probably been kicked out already!
+Refresh the page to reconnect.`)
+        return false
+      }
+      ws.send(keyinBox.value)
+      keyinBox.value = ''
+      return false
+    }
+  })
+</script>
+|]
+
+
+consoleLog :: String -> IO ()
+consoleLog = hPutStrLn stderr
 ```
