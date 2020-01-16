@@ -21,9 +21,7 @@ where
 import           Prelude
 import           Debug.Trace
 
-import           System.IO                      ( stderr
-                                                , hPutStrLn
-                                                )
+import           System.IO                      ( stderr )
 
 import           System.Clock
 
@@ -33,6 +31,7 @@ import           Control.Concurrent
 import           System.Posix.Signals
 
 import           Data.IORef
+import           Data.Text.IO
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
 import qualified Data.Text.Lazy                as TL
@@ -61,68 +60,65 @@ wsPort, httpPort :: Int
 
 servWebSockets :: IO ()
 servWebSockets = runChatWorld $ ChatAccessPoint handleCtrlC $ \agentEntry -> do
-  let
-    acceptWSC sock = do
-      (conn, _) <- accept sock
-      void $ forkFinally (handleWSC conn) $ \wsResult -> do
-        case wsResult of
-          Left  exc -> consoleLog $ "WS error: " <> show exc
-          Right _   -> pure ()
-        close conn -- close the socket anyway
-      acceptWSC sock -- tail recursion
+  let acceptWSC sock = do
+        (conn, _) <- accept sock
+        void $ forkFinally (handleWSC conn) $ \wsResult -> do
+          case wsResult of
+            Left  exc -> consoleLog $ "WS error: " <> T.pack (show exc)
+            Right _   -> pure ()
+          close conn -- close the socket anyway
+        acceptWSC sock -- tail recursion
 
-    handleWSC conn = do
-      pconn <- WS.makePendingConnection conn
-        $ WS.defaultConnectionOptions { WS.connectionStrictUnicode = True }
-      wsc             <- WS.acceptRequest pconn
-      disconnectNotif <- newEmptyMVar
-      incomingMsg     <- newEmptyMVar
-      let
-        cutOff :: Text -> IO ()
-        cutOff !lastWords = handle noPanic $ do
-          WS.sendTextData wsc lastWords
-          WS.sendClose wsc lastWords
-        sendOut :: Text -> IO ()
-        sendOut = handle noPanic . WS.sendTextData wsc
-        noPanic :: SomeException -> IO ()
-        noPanic exc = trace ("WS unexpected: " <> show exc) $ return ()
+      handleWSC conn = do
+        pconn <- WS.makePendingConnection conn
+          $ WS.defaultConnectionOptions { WS.connectionStrictUnicode = True }
+        wsc             <- WS.acceptRequest pconn
+        disconnectNotif <- newEmptyMVar
+        incomingMsg     <- newEmptyMVar
+        let cutOff :: Text -> IO ()
+            cutOff !lastWords = handle noPanic $ do
+              WS.sendTextData wsc lastWords
+              WS.sendClose wsc lastWords
+            sendOut :: Text -> IO ()
+            sendOut = handle noPanic . WS.sendTextData wsc
+            noPanic :: SomeException -> IO ()
+            noPanic exc = trace ("WS unexpected: " <> show exc) $ return ()
 
-        keepReadingPkt = do
-          pkt <- WS.receiveDataMessage wsc
-          case pkt of
-            (WS.Text _bytes (Just pktText)) ->
-              tryReadMVar incomingMsg >>= \case
-                Nothing ->
-                  consoleLog $ "WS got: " <> T.unpack (TL.toStrict pktText)
-                Just !msgSink -> msgSink (TL.toStrict pktText)
-            (WS.Binary _bytes) -> WS.sendCloseCode wsc 1003 ("?!?" :: Text)
-            _                  -> WS.sendCloseCode wsc 1003 ("!?!" :: Text)
--- https://hackage.haskell.org/package/websockets/docs/Network-WebSockets.html#v:sendCloseCode
--- > you should continue calling receiveDataMessage until you receive a CloseRequest exception.
-          keepReadingPkt
+            keepReadingPkt = do
+              pkt <- WS.receiveDataMessage wsc
+              case pkt of
+                (WS.Text _bytes (Just pktText)) ->
+                  tryReadMVar incomingMsg >>= \case
+                    Nothing -> consoleLog $ "WS got: " <> TL.toStrict pktText
+                    Just !msgSink -> msgSink (TL.toStrict pktText)
+                (WS.Binary _bytes) -> WS.sendCloseCode wsc 1003 ("?!?" :: Text)
+                _                  -> WS.sendCloseCode wsc 1003 ("!?!" :: Text)
+    -- https://hackage.haskell.org/package/websockets/docs/Network-WebSockets.html#v:sendCloseCode
+    -- > you should continue calling receiveDataMessage until you receive a CloseRequest exception.
+              keepReadingPkt
 
-      agentEntry ChatUserAgent { cutoffHuman = cutOff
-                               , humanLeave  = putMVar disconnectNotif
-                               , toHuman     = sendOut
-                               , fromHuman   = putMVar incomingMsg
-                               }
+        agentEntry ChatUserAgent { cutoffHuman = cutOff
+                                 , humanLeave  = putMVar disconnectNotif
+                                 , toHuman     = sendOut
+                                 , fromHuman   = putMVar incomingMsg
+                                 }
 
-      keepReadingPkt `catch` \case
-        WS.CloseRequest closeCode closeReason ->
-          if closeCode == 1000 || closeCode == 1001
-            then pure ()
-            else
-              consoleLog
-              $  "WS closed with code "
-              <> show closeCode
-              <> " and reason ["
-              <> T.unpack (decodeUtf8 $ BL.toStrict closeReason)
-              <> "]"
-        WS.ConnectionClosed -> consoleLog "WS disconnected"
-        _                   -> consoleLog "WS unexpected error"
+        keepReadingPkt `catch` \case
+          WS.CloseRequest closeCode closeReason ->
+            if closeCode == 1000 || closeCode == 1001
+              then pure ()
+              else
+                consoleLog
+                $  "WS closed with code "
+                <> T.pack (show closeCode)
+                <> " and reason ["
+                <> decodeUtf8 (BL.toStrict closeReason)
+                <> "]"
+          WS.ConnectionClosed -> consoleLog "WS disconnected"
+          _                   -> consoleLog "WS unexpected error"
 
-      -- notify the world anyway
-      tryReadMVar disconnectNotif >>= sequence_
+        -- notify the world anyway
+        tryReadMVar disconnectNotif >>= sequence_
 
   void $ forkIO $ withSocketsDo $ do
     addr <- resolveWsAddr
@@ -191,8 +187,8 @@ main = do
       $ Snap.setErrorLog (Snap.ConfigIoLog $ B.hPutStrLn stderr) mempty
   httpListening httpInfo = do
     listenAddrs <- sequence (getSocketName <$> Snap.getStartupSockets httpInfo)
-    consoleLog $ "Đ - Im available at: " <> unwords
-      (("http://" <>) . show <$> listenAddrs)
+    consoleLog $ "Đ - Im available at: " <> T.unwords
+      (("http://" <>) . T.pack . show <$> listenAddrs)
 
   !(wsSuffix :: Text) = ":" <> T.pack (show wsPort)
 
@@ -247,6 +243,6 @@ Refresh the page to reconnect.`)
 |]
 
 
-consoleLog :: String -> IO ()
+consoleLog :: Text -> IO ()
 consoleLog = hPutStrLn stderr
 
