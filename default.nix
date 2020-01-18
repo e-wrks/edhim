@@ -1,13 +1,13 @@
 { overlays ? [ ], ... }@args:
 import (
 # to use a version of Edh from github
-  # builtins.fetchTarball {
-  #   url = "https://github.com/e-wrks/edh/archive/0.1.0.0.tar.gz";
-  #   sha256 = "xxx";
-  # }
+  builtins.fetchTarball {
+    url = "https://github.com/e-wrks/edh/archive/0.1.0.0.tar.gz";
+    sha256 = "00a2l66w8anbsy5pc6vmbbs16sff25ngzdaxvfif5a4jsqs3awbp";
+  }
 
   # to use the version of Edh checked out locally
-  ../edh
+  # ../edh
 ) (args // {
   overlays = (args.overlays or [ ]) ++ [
     (self: super:
