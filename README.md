@@ -1,5 +1,7 @@
 # EdhIm - Đ (Edh) doing Instant Messaging
 
+[![Gitter](https://badges.gitter.im/e-wrks/community.svg)](https://gitter.im/e-wrks/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
+
 This is a project demonstrating a few sweet spots found balanced between
 _declarative_ and _imperative_ stylish, when put together, can make
 [**Đ (Edh)**](https://github.com/e-wrks/edh)
