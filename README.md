@@ -20,6 +20,7 @@ This repository can be used as the scaffold to start your **Haskell** +
   - [Favouring Stack](#favouring-stack)
 - [TL;DR](#tldr)
   - [Screenshots](#screenshots)
+- [All the 3 source files](#all-the-3-source-files)
   - [Full Đ (Edh) code (95 LoC)](#full-%c4%90-edh-code-95-loc)
   - [World modeling code in Haskell (190 LoC)](#world-modeling-code-in-haskell-190-loc)
   - [World reifying code in Haskell (193 LoC)](#world-reifying-code-in-haskell-193-loc)
@@ -64,6 +65,8 @@ to do chatting.
 ![edhim-demo-alice](https://user-images.githubusercontent.com/15646573/72426593-fd3d6b80-37c4-11ea-8e7d-bd8a1ec9e450.png)
 ![edhim-demo-bob](https://user-images.githubusercontent.com/15646573/72426594-fd3d6b80-37c4-11ea-873b-1a920e9b75c5.png)
 ![edhim-demo-console](https://user-images.githubusercontent.com/15646573/72426596-fd3d6b80-37c4-11ea-9339-10b9440911c4.png)
+
+## All the 3 source files
 
 ### Full Đ (Edh) code (95 LoC)
 
