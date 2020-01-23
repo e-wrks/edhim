@@ -18,7 +18,7 @@ can be more viable and maintainable by teams with diversified crew members.
 
 One possible division of labour on from this repository as a baseline, e.g.
 
-- Junior people and new comers (the Dev):
+- Junior people and New Comers (the Dev), End Users (bugfixers):
 
   Extend [Đ (Edh) code](#full-%c4%90-edh-code-95-loc) with new modules,
   3rd party packages for application / business logics, with fast
