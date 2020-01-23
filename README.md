@@ -13,7 +13,7 @@ This repository can be used as the scaffold to start a **Haskell** +
 **Đ (Edh)** code should be especially more _readable_/_modifiable_
 to average people without a
 [functional](https://github.com/e-wrks/edh#functional---try-not-to-abuse-this-concept)
-mindset, thus development of a software project in **Haskell** + **Edh**
+mindset (yet), thus development of a software project in **Haskell** + **Edh**
 can be more viable and maintainable by teams with diversified crew members.
 
 One possible division of labour on from this repository as a baseline, e.g.
