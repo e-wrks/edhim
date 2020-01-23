@@ -31,13 +31,13 @@ One possible division of labour on from this repository as a baseline, e.g.
   then progressively (but may better conservatively) improve the models,
   for mistakes harder to be made, idiomatics easier to be followed
 
-* Architect / Senior Engineering people, Security Experts, the Ops:
+- Architect / Senior Engineering people, Security Experts, the Ops:
 
   Establish and maintain
   [world reifying code](#world-reifying-code-in-haskell-193-loc),
   ensure the systems run continuously & securely on a foundation of
-  contemporary technology stack, patch CVEs in time, perform
-  regularly the house keeping of backing storeage
+  contemporary technology stack, deal with dependency EOLs, patch CVEs in
+  time, perform regularly the house keeping of backing storage
 
 - [Quick Start](#quick-start)
   - [Favouring Cabal](#favouring-cabal)
