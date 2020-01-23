@@ -7,13 +7,37 @@ _declarative_ and _imperative_ stylish, when put together, can make
 [**Đ (Edh)**](https://github.com/e-wrks/edh)
 code even more concise than **Haskell** code.
 
+This repository can be used as the scaffold to start a **Haskell** +
+**Edh** software project, as well as to run the demo for some feels.
+
 **Đ (Edh)** code should be especially more _readable_/_modifiable_
 to average people without a
 [functional](https://github.com/e-wrks/edh#functional---try-not-to-abuse-this-concept)
-mindset, thus more maintainable by teams with diversified crew members.
+mindset, thus development of a software project in **Haskell** + **Edh**
+can be more viable and maintainable by teams with diversified crew members.
 
-This repository can be used as the scaffold to start your **Haskell** +
-**Edh** software development, as well as to run the demo yourself.
+One possible division of labour on from this repository as a baseline, e.g.
+
+- Junior people and new comers (the Dev):
+
+  Extend [Đ (Edh) code](#full-%c4%90-edh-code-95-loc) with new modules,
+  3rd party packages for application / business logics, with fast
+  iterations
+
+- Thinkist people:
+
+  Establish the
+  [world modeling code](#world-modeling-code-in-haskell-190-loc),
+  then progressively (but may better conservatively) improve the models,
+  for mistakes harder to be made, idiomatics easier to be followed
+
+* Architect / Senior Engineering people, Security Experts, the Ops:
+
+  Establish and maintain
+  [world reifying code](#world-reifying-code-in-haskell-193-loc),
+  ensure the systems run continuously & securely on a foundation of
+  contemporary technology stack, patch CVEs in time, perform
+  regularly the house keeping of backing storeage
 
 - [Quick Start](#quick-start)
   - [Favouring Cabal](#favouring-cabal)
