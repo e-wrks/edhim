@@ -2,8 +2,8 @@
 import (
 # to use a version of Edh from github
   builtins.fetchTarball {
-    url = "https://github.com/e-wrks/edh/archive/0.1.0.0.tar.gz";
-    sha256 = "00a2l66w8anbsy5pc6vmbbs16sff25ngzdaxvfif5a4jsqs3awbp";
+    url = "https://github.com/e-wrks/edh/archive/0.1.0.1.tar.gz";
+    sha256 = "00bcpx6liszkp7arykxmb971i2a3mpkpsgziig450iz884b9vdcw";
   }
 
   # to use the version of Edh checked out locally
