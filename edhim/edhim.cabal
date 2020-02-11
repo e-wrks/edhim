@@ -28,7 +28,7 @@ executable edhim
         Paths_edhim
     default-language: Haskell2010
     default-extensions: NoImplicitPrelude OverloadedStrings LambdaCase
-                        BlockArguments BangPatterns TupleSections ScopedTypeVariables
+                        BangPatterns TupleSections ScopedTypeVariables
     ghc-options: -Wall -threaded
     build-depends:
         ghc >=8.6.5,
