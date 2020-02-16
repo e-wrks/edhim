@@ -9,7 +9,7 @@ import (
   # to use the version of Edh checked out locally
   # ../edh
 ) (args // {
-  overlays = (args.overlays or [ ]) ++ [
+  overlays = [
     (self: super:
       let
         myHaskellPackageSet = super.haskellPackages.override {
@@ -29,5 +29,5 @@ import (
           };
         };
       })
-  ];
+  ] ++ overlays;
 })
