@@ -16,7 +16,7 @@ import           Control.Concurrent.STM
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
 
-import qualified Data.Map.Strict               as Map
+import qualified Data.HashMap.Strict           as Map
 
 import           Language.Edh.EHI
 
@@ -152,19 +152,14 @@ runChatWorld !accessPoint = defaultEdhLogger >>= createEdhWorld >>= \world ->
   --
   -- This can be written in simpler non-CPS as we're not
   -- interested in the return value
-  rcRun :: EdhProgState -> Object -> Method -> STM ()
-  rcRun pgs rcObj (Method mth'lexi'stack mth'proc) =
-    runEdhProg pgs $ callEdhMethod (ArgsPack [] Map.empty)
-                                   rcObj
-                                   mth'lexi'stack
-                                   mth'proc
-                                   Nothing
-                                   edhNop
+  rcRun :: EdhProgState -> Object -> ProcDefi -> STM ()
+  rcRun pgs rcObj mth'proc = runEdhProg pgs
+    $ callEdhMethod (ArgsPack [] Map.empty) rcObj mth'proc Nothing edhNop
 
   -- | Get a method by name from rc object
   -- 
   -- This is done with simple TVar traversal, no need to go CPS
-  rcMethod :: EdhProgState -> Object -> Text -> STM Method
+  rcMethod :: EdhProgState -> Object -> Text -> STM ProcDefi
   rcMethod pgs rcObj mthName =
     lookupEdhObjAttr rcObj (AttrByName mthName) >>= \case
       Nothing ->

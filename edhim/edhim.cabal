@@ -35,6 +35,8 @@ executable edhim
         base >=4.12 && <5,
         stm >=2.5,
         edh -any,
+        hashable -any,
+        unordered-containers -any,
         containers -any,
         unix -any,
         clock -any,
