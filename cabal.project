@@ -11,9 +11,9 @@ source-repository-package
     type: git
     location: https://github.com/e-wrks/edh
     subdir: edh
-    tag: 0.1.0.1
+    tag: 0.2.0.0
 source-repository-package
     type: git
     location: https://github.com/e-wrks/edh
     subdir: lossless-decimal
-    tag: 0.1.0.1
+    tag: 0.2.0.0
