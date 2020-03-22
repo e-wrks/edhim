@@ -58,8 +58,8 @@ httpPort = 8688
 servAddr :: Text
 wsPort, httpPort :: Int
 
-servWebSockets :: IO ()
-servWebSockets = runChatWorld $ ChatAccessPoint handleCtrlC $ \agentEntry -> do
+servWebSockets :: (ChatUserAgent -> IO ()) -> IO ()
+servWebSockets !agentEntry = do
   let acceptWSC sock = do
         (conn, _) <- accept sock
         void $ forkFinally (handleWSC conn) $ \wsResult -> do
@@ -120,7 +120,7 @@ servWebSockets = runChatWorld $ ChatAccessPoint handleCtrlC $ \agentEntry -> do
         -- notify the world anyway
         tryReadMVar disconnectNotif >>= sequence_
 
-  void $ forkIO $ withSocketsDo $ do
+  withSocketsDo $ do
     addr <- resolveWsAddr
     bracket (open addr) close acceptWSC
 
@@ -172,9 +172,9 @@ main = do
 
   -- we're handling Ctrl^C below for server purge action in the chat world,
   -- it needs to run from the main thread, so snap http is forked to a side
-  -- thread above
+  -- thread above.
 
-  servWebSockets
+  runChatWorld $ ChatAccessPoint handleCtrlC servWebSockets
 
  where
 

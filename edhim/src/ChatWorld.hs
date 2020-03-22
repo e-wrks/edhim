@@ -8,9 +8,8 @@ import           Prelude
 
 import           GHC.Conc                       ( unsafeIOToSTM )
 
-import           Control.Monad
 import           Control.Monad.Reader
-import           Control.Concurrent
+
 import           Control.Concurrent.STM
 
 import           Data.Text                      ( Text )
@@ -40,15 +39,15 @@ type OutputToHuman = Text
 
 -- | Joint physics of the only gate in a chat world 
 data ChatAccessPoint = ChatAccessPoint {
-    dismissAll :: IO () -- ^ the action to kick all chatters out
-               -> IO () -- ^ the action installer
-    , accomodateAgent :: (ChatUserAgent -> IO ()) -- ^ the entry
-                      -> IO () -- ^ the entry installer
+      dismissAll :: IO () -- ^ the action to kick all chatters out
+                 -> IO () -- ^ the action installer
+    , accomodateAgents :: (ChatUserAgent -> IO ()) -- ^ the entry
+                       -> IO () -- ^ the blocking accomodate action
   }
 
 -- | Joint physics of a user agent in a chat world
 data ChatUserAgent = ChatUserAgent {
-    cutoffHuman   :: OutputToHuman             -- ^ last words
+      cutoffHuman :: OutputToHuman             -- ^ last words
                   -> IO () -- ^ the action to kick a chatter out
     , humanLeave  :: IO () -> IO () -- ^ the notif a user disconnected
     , toHuman     :: OutputToHuman             -- ^ some message
@@ -70,66 +69,69 @@ parseInputFromHuman raw = case T.stripPrefix "/" raw of
     _          -> EdhString "/"
 
 formatOutputToHuman :: EdhValue -> OutputToHuman
-formatOutputToHuman = edhValueStr
+formatOutputToHuman (EdhString s) = s
+formatOutputToHuman v             = T.pack $ show v
 
 
 -- | Connect chat world physics to the real world by pumping events in and out
-adaptChatEvents :: ChatAccessPoint -> IO EventSink
-adaptChatEvents !accessPoint = do
-  evsAP <- atomically newEventSink
-  accomodateAgent accessPoint $ \userAgent -> do
-    evsIn  <- atomically newEventSink
-    evsOut <- atomically newEventSink
-    void $ forkIO $ evsToHuman evsOut userAgent
+adaptChatEvents :: ChatAccessPoint -> EventSink -> IO ()
+adaptChatEvents !accessPoint !evsAP =
+  accomodateAgents accessPoint -- this blocks forever
+    -- this function is invoked for each user connection
+                               $ \userAgent -> do
+    -- start a separate thread to pump msg from chat world to realworld
+    evsOut <- forkEventConsumer $ \evsOut -> do
+      (!subChan, !ev1) <- atomically (subscribeEvents evsOut)
+      let evToHuman !ev = case ev of
+            (EdhPair EdhNil (EdhString lastWords)) ->
+              -- this pattern from the world means chatter kicked
+              cutoffHuman userAgent lastWords
+            _ -> do
+              toHuman userAgent $ formatOutputToHuman ev
+              atomically (readTChan subChan) >>= evToHuman
+      case ev1 of
+        Just ev -> evToHuman ev
+        Nothing -> atomically (readTChan subChan) >>= evToHuman
+    -- wait until the chat world has started consuming events from `evsIn`
+    evsIn <- waitEventConsumer $ \evsIn ->
+      atomically
+        $ publishEvent evsAP -- show this new agent in to the chat world
+        $ EdhArgsPack -- use an arguments-pack as event data
+        $ ArgsPack    -- the data ctor
+                   [EdhSink evsIn, EdhSink evsOut] -- positional args
+                   Map.empty                       -- keyword args
+    -- now install `evsIn` as the drop target for each human input from realworld
     fromHuman userAgent $ atomically . publishEvent evsIn . parseInputFromHuman
     humanLeave userAgent $ atomically $ publishEvent evsIn $ EdhPair
       -- generate a quit command on forceful disconnection
       (EdhString "quit")
       (EdhTuple [])
-    -- show this new agent in to the chat world
-    atomically
-      $ publishEvent evsAP
-      $ EdhArgsPack -- use an arguments-pack as event data
-      $ ArgsPack    -- the data ctor
-                 [EdhSink evsIn, EdhSink evsOut] -- positional args
-                 Map.empty                       -- keyword args
-  return evsAP
- where
-  evsToHuman :: EventSink -> ChatUserAgent -> IO ()
-  evsToHuman !evsOut !userAgent = do
-    (!subChan, !ev1) <- atomically (subscribeEvents evsOut)
-    let evToHuman !ev = case ev of
-          (EdhPair EdhNil (EdhString lastWords)) ->
-            -- this pattern from the world means chatter kicked
-            cutoffHuman userAgent lastWords
-          _ -> do
-            toHuman userAgent $ formatOutputToHuman ev
-            atomically (readTChan subChan) >>= evToHuman
-    case ev1 of
-      Just ev -> evToHuman ev
-      Nothing -> atomically (readTChan subChan) >>= evToHuman
 
 
 -- | Create a chat world and run it
 runChatWorld :: ChatAccessPoint -> IO ()
-runChatWorld !accessPoint = defaultEdhLogger >>= createEdhWorld >>= \world ->
+runChatWorld !accessPoint = defaultEdhRuntime >>= createEdhWorld >>= \world ->
   do
     installEdhBatteries world
 
-    let withEdhErrorLogged :: Either InterpretError () -> IO ()
-        withEdhErrorLogged = \case
-          Left err -> atomically $ do
-            rt <- readTMVar $ worldRuntime world
-            runtimeLogger rt 50 Nothing
-              $ ArgsPack [EdhString $ T.pack $ show err] Map.empty
-          Right _ -> return ()
+    let withEdhLogged :: Either EdhError () -> IO ()
+        withEdhLogged result = do
+          case result of
+            Left err -> atomically $ logger 50 (Just "<the-hell>") $ ArgsPack
+              [EdhString $ T.pack $ show err]
+              Map.empty
+            Right _ -> pure ()
+          flushLogs
+          where EdhRuntime logger _ flushLogs = worldRuntime world
 
-    (withEdhErrorLogged =<<) $ bootEdhModule world "chat" >>= \case
+    (withEdhLogged =<<) $ bootEdhModule world "chat" >>= \case
       Left  !err  -> return $ Left err
       Right !modu -> do
-        moduCtx <- atomically $ moduleContext world modu
-        evsAP   <- adaptChatEvents accessPoint
-        (withEdhErrorLogged =<<) $ runEdhProgram moduCtx $ do
+        let !moduCtx = moduleContext world modu
+        -- the event producing will not start until `evsAP` is subscribed from
+        -- the chat world
+        evsAP <- forkEventProducer $ adaptChatEvents accessPoint
+        (withEdhLogged =<<) $ runEdhProgram moduCtx $ do
           pgs <- ask
           ctorRunCtrl evsAP $ \rcObj -> contEdhSTM $ do
             mthDismiss <- rcMethod pgs rcObj "dismiss"
@@ -137,45 +139,42 @@ runChatWorld !accessPoint = defaultEdhLogger >>= createEdhWorld >>= \world ->
 
             unsafeIOToSTM
               $ dismissAll accessPoint
-              $ (withEdhErrorLogged =<<)
+              $ (withEdhLogged =<<)
               $ runEdhProgram moduCtx
               $ do
                   pgs' <- ask
-                  contEdhSTM $ rcRun pgs' rcObj mthDismiss
+                  contEdhSTM $ runEdhProg pgs' $ callEdhMethod
+                    rcObj
+                    mthDismiss
+                    (ArgsPack [] Map.empty)
+                    edhEndOfProc
 
-            rcRun pgs rcObj mthRun
+            runEdhProg pgs $ callEdhMethod rcObj
+                                           mthRun
+                                           (ArgsPack [] Map.empty)
+                                           edhEndOfProc
         return $ Right ()
 
  where
-
-  -- | All rc methods are nullary, can be called uniformly
-  --
-  -- This can be written in simpler non-CPS as we're not
-  -- interested in the return value
-  rcRun :: EdhProgState -> Object -> ProcDefi -> STM ()
-  rcRun pgs rcObj mth'proc = runEdhProg pgs
-    $ callEdhMethod (ArgsPack [] Map.empty) rcObj mth'proc Nothing edhNop
 
   -- | Get a method by name from rc object
   -- 
   -- This is done with simple TVar traversal, no need to go CPS
   rcMethod :: EdhProgState -> Object -> Text -> STM ProcDefi
   rcMethod pgs rcObj mthName =
-    lookupEdhObjAttr rcObj (AttrByName mthName) >>= \case
-      Nothing ->
+    lookupEdhObjAttr pgs rcObj (AttrByName mthName) >>= \case
+      EdhNil ->
         throwEdhSTM pgs EvalError
           $  "Method `RunCtrl."
           <> mthName
           <> "()` not defined in chat.edh ?"
-      Just (EdhMethod mthVal) -> return mthVal
-      Just malVal ->
+      EdhMethod mthVal -> return mthVal
+      malVal ->
         throwEdhSTM pgs EvalError
           $  "Unexpected `RunCtrl."
           <> mthName
           <> "()`, it should be a method but found to be a "
-          <> T.pack (show $ edhTypeOf malVal)
-          <> ": "
-          <> T.pack (show malVal)
+          <> T.pack (edhTypeNameOf malVal)
 
   -- | Construct the rc object
   --
@@ -186,22 +185,18 @@ runChatWorld !accessPoint = defaultEdhLogger >>= createEdhWorld >>= \world ->
     pgs <- ask
     let !ctx   = edh'context pgs
         !scope = contextScope ctx
-    contEdhSTM $ lookupEdhCtxAttr scope (AttrByName "RunCtrl") >>= \case
-      Nothing -> throwEdhSTM pgs EvalError "No `RunCtrl` defined in chat.edh ?"
-      Just (EdhClass rcClass) ->
+    contEdhSTM $ lookupEdhCtxAttr pgs scope (AttrByName "RunCtrl") >>= \case
+      EdhNil -> throwEdhSTM pgs EvalError "No `RunCtrl` defined in chat.edh ?"
+      EdhClass rcClass ->
         runEdhProg pgs
-          $ constructEdhObject (ArgsPack [EdhSink evsAP] Map.empty) rcClass
+          $ constructEdhObject rcClass (ArgsPack [EdhSink evsAP] Map.empty)
           $ \(OriginalValue !val _ _) -> case val of
               EdhObject rcObj -> exit rcObj
               _ ->
                 throwEdh EvalError
-                  $  "Expecting an object be constructed by `RunCtrl`, but got "
-                  <> T.pack (show $ edhTypeOf val)
-                  <> ": "
-                  <> T.pack (show val)
-      Just malVal ->
+                  $ "Expecting an object be constructed by `RunCtrl`, but got a "
+                  <> T.pack (edhTypeNameOf val)
+      malVal ->
         throwEdhSTM pgs EvalError
           $ "Unexpected `RunCtrl` as defined in chat.edh, it should be a class but found to be a "
-          <> T.pack (show $ edhTypeOf malVal)
-          <> ": "
-          <> T.pack (show malVal)
+          <> T.pack (edhTypeNameOf malVal)
