@@ -45,9 +45,9 @@ One possible division of labour on from this repository as a baseline, e.g.
 - [TL;DR](#tldr)
   - [Screenshots](#screenshots)
 - [All the 3 source files](#all-the-3-source-files)
-  - [Full Đ (Edh) code (95 LoC)](#full-%c4%90-edh-code-95-loc)
-  - [World modeling code in Haskell (190 LoC)](#world-modeling-code-in-haskell-190-loc)
-  - [World reifying code in Haskell (193 LoC)](#world-reifying-code-in-haskell-193-loc)
+  - [Full Đ (Edh) code (80 LoC)](#full-%c4%90-edh-code-80-loc)
+  - [World modeling code in Haskell (140 LoC)](#world-modeling-code-in-haskell-140-loc)
+  - [World reifying code in Haskell (190 LoC)](#world-reifying-code-in-haskell-190-loc)
 
 ## Quick Start
 
@@ -92,13 +92,15 @@ to do chatting.
 
 ## All the 3 source files
 
-### Full Đ (Edh) code (95 LoC)
+### Full Đ (Edh) code (80 LoC)
 
 https://github.com/e-wrks/edhim/blob/master/edh_modules/chat.edh
 
 ```haskell
 # this ctor bootstraps the chat world
-class RunCtrl accessPoint {
+class RunCtrl {
+  method __init__ (accessPoint as this.accessPoint) pass
+
   chatters = {,}  # the dict of all chatters by name
 
   method dismiss () {  # this is called on Ctrl^C at the console
@@ -111,7 +113,9 @@ class RunCtrl accessPoint {
       chatter.kicked <- 'server purge'
   }
 
-  class Chat (incoming, out) {
+  # this ctor allocates a private namespace (object) for a new user session
+  class Chat {
+
     kicked = sink  # create a new sink for kicked-out event
 
     reactor kicked reason {
@@ -124,81 +128,119 @@ class RunCtrl accessPoint {
       break  # `break` from a reactor breaks the thread, 'Chat' then stops
     }
 
-    name = '<stranger>'  # to appear in the log on premature disconnection
-    out <- "What is your name?"
-    for name from incoming do case type(name) of {
-      StringType -> {
-        # use a tx to mediate naming contentions
-        ai case chatters[name] of nil -> {
-          chatters[name] = this
-          break  # to break the for-from-do loop
-        }
-        out <- "The name " ++name++ " is in use, please choose another"
-        # not doing fallthrough here, the loop will continue
-      }
-      # this chatter is destined to be kicked out, if reaching here
-      kicked <- case name of {
-        { cmd:_ } -> case cmd of {
-          'quit' -> nil  # human left without answering the name
-          fallthrough  # other malicious cmds
-        }
-        runtime.warn <| 'Some one tried to use name: ' ++ name
-        'misbehaving, adversarial name - ' ++ name
-      }
-    }
-
-    defer {  # defered code is guaranteed to run on thread termination
-      runtime.debug <| 'Cleaning up for ' ++ name
-      # need a tx to not cleanup a later live chatter with same name
-      ai if chatters[name] == this then chatters[name] = nil
-    }
-
-    for msg from incoming do case msg of {
-      name -> out <- ' 🎉 Welcome ' ++ name ++ '!'
-
-      { cmd:args } -> case cmd of {
-
-        'kick' -> case args of { { (who,) } -> case chatters[who] of {
-          nil -> out <- who ++ ' is not connected'
-          { chatter } -> {
-            chatter.kicked <- 'by ' ++ this.name
-            out <- 'you kicked ' ++ who
+    method __init__ (
+      incoming as this.incoming, out as this.out,
+    ) {
+      this.name = '<stranger>'  # to appear in the log on premature disconnection
+      out <- "What is your name?"
+      for name from incoming do case type(name) of {
+        StringType -> {
+          this.name = name
+          # use a tx to mediate naming contentions
+          ai case chatters[name] of nil -> {
+            chatters[name] = this
+            break  # to break the for-from-do loop
           }
-        } out <- 'Invalid args to /kick: ' ++ args }
-
-        'tell' -> case args of { { (who, what) } -> case chatters[who] of {
-          nil -> out <- who ++ ' is not connected'
-          { chatter } -> chatter.out <- '*'++name++'*: ' ++ what
-        } out <- 'Invalid args to /tell: ' ++ args }
-
-        'quit' -> { out <- nil:'Bye!'; kicked <- nil }
-
-        out <- 'Unrecognised command: ' ++ msg
+          out <- "The name " ++name++ " is in use, please choose another"
+          # not doing fallthrough here, the loop will continue
+        }
+        # abnormal input for name, this chatter is destined to be kicked out
+        kicked <- case name of {
+          { cmd:_ } -> case cmd of {
+            'quit' -> nil  # human left without answering the name
+            fallthrough  # other malicious cmds
+          }
+          runtime.warn <| 'Some one tried to use name: ' ++ name
+          'misbehaving, adversarial name - ' ++ name
+        }
       }
 
-      # run to here means none of the branches above matched, so it's a public
-      # message and let's broadcast it
-      # it's okay to use a snapshot of all live chatters, no tx here
-      for (_name, chatter) from chatters do if chatter!=nil then
-        chatter.out <- '<'++name++'>: ' ++ msg
+      defer {  # defered code is guaranteed to run on thread termination
+        runtime.debug <| 'Cleaning up for ' ++ name
+        # need a tx to not cleanup a later live chatter with same name
+        ai if chatters[name] == this then chatters[name] = nil
+      }
+
+      # here is a tiny window for user msgs through `incoming` get dropped,
+      # that between the subscription loop below and the name prompting loop
+      # above. this is not a big deal for our chat business, left as a demo.
+      for msg from incoming do case msg of {
+
+        # the mre (most-recent-event) from `incoming` atm tends to be the
+        # user's answer to name inquiry, it's very probably be the very first
+        # `msg` seen here, we take this chance to greet the user.
+        # well this handling may surprise the user when later he/she typed
+        # his/her own name, intending to send as a broadcast message.
+        name -> out <- ' 🎉 Welcome ' ++ name ++ '!'
+
+        { cmd:args } -> case cmd of {
+
+          'kick' -> case args of { { (who,) } -> case chatters[who] of {
+            nil -> out <- who ++ ' is not connected'
+            { chatter } -> {
+              chatter.kicked <- 'by ' ++ this.name
+              out <- 'you kicked ' ++ who
+            }
+          } out <- 'Invalid args to /kick: ' ++ args }
+
+          'tell' -> case args of { { (who, what) } -> case chatters[who] of {
+            nil -> out <- who ++ ' is not connected'
+            { chatter } -> chatter.out <- '*'++name++'*: ' ++ what
+          } out <- 'Invalid args to /tell: ' ++ args }
+
+          'quit' -> { out <- nil:'Bye!'; kicked <- nil }
+
+          out <- 'Unrecognised command: ' ++ msg
+        }
+
+        # run to here means none of the branches above matched, so it's a public
+        # message and let's broadcast it
+        # it's okay to use a snapshot of all live chatters, no tx here
+        for (_name, chatter) from chatters do if chatter!=nil then
+          chatter.out <- '<'++ this.name ++'>: ' ++ msg
+
+      }
     }
+
   }
 
-  method run ()  # this is the method to keep the world running
+  method run () { # this is the method to keep the world running
     # each time a new agent enters the chat world, a pair of sinks for its
     # incoming and outgoing messages are posted through the sink of access point
     for (in, out) from accessPoint do {
       go Chat(in, out)  # start a chatter thread to do the IO
       in=nil out=nil  # unref so they're garbage-collectable after chatter left
     }
+  }
 }
 ```
 
-### World modeling code in Haskell (190 LoC)
+### World modeling code in Haskell (140 LoC)
 
 https://github.com/e-wrks/edhim/blob/master/edhim/src/ChatWorld.hs
 
 ```haskell
+-- | This module models an Edh world doing chat hosting business
+
+module ChatWorld where
+
+import           Prelude
+-- import           Debug.Trace
+
+import           GHC.Conc                       ( unsafeIOToSTM )
+
+import           Control.Monad.Reader
+
+import           Control.Concurrent.STM
+
+import           Data.Text                      ( Text )
+import qualified Data.Text                     as T
+
+import qualified Data.HashMap.Strict           as Map
+
+import           Language.Edh.EHI
+
+
 -- * In this simple case, the input/output items between humans in the
 -- real world and articles in the chat world are just textual messages
 
@@ -218,15 +260,15 @@ type OutputToHuman = Text
 
 -- | Joint physics of the only gate in a chat world
 data ChatAccessPoint = ChatAccessPoint {
-    dismissAll :: IO () -- ^ the action to kick all chatters out
-               -> IO () -- ^ the action installer
-    , accomodateAgent :: (ChatUserAgent -> IO ()) -- ^ the entry
-                      -> IO () -- ^ the entry installer
+      dismissAll :: IO () -- ^ the action to kick all chatters out
+                 -> IO () -- ^ the action installer
+    , accomodateAgents :: (ChatUserAgent -> IO ()) -- ^ the entry
+                       -> IO () -- ^ the blocking accomodate action
   }
 
 -- | Joint physics of a user agent in a chat world
 data ChatUserAgent = ChatUserAgent {
-    cutoffHuman   :: OutputToHuman             -- ^ last words
+      cutoffHuman :: OutputToHuman             -- ^ last words
                   -> IO () -- ^ the action to kick a chatter out
     , humanLeave  :: IO () -> IO () -- ^ the notif a user disconnected
     , toHuman     :: OutputToHuman             -- ^ some message
@@ -248,66 +290,69 @@ parseInputFromHuman raw = case T.stripPrefix "/" raw of
     _          -> EdhString "/"
 
 formatOutputToHuman :: EdhValue -> OutputToHuman
-formatOutputToHuman = edhValueStr
+formatOutputToHuman (EdhString s) = s
+formatOutputToHuman v             = T.pack $ show v
 
 
 -- | Connect chat world physics to the real world by pumping events in and out
-adaptChatEvents :: ChatAccessPoint -> IO EventSink
-adaptChatEvents !accessPoint = do
-  evsAP <- atomically newEventSink
-  accomodateAgent accessPoint $ \userAgent -> do
-    evsIn  <- atomically newEventSink
-    evsOut <- atomically newEventSink
-    void $ forkIO $ evsToHuman evsOut userAgent
+adaptChatEvents :: ChatAccessPoint -> EventSink -> IO ()
+adaptChatEvents !accessPoint !evsAP =
+  accomodateAgents accessPoint -- this blocks forever
+    -- this function is invoked for each user connection
+                               $ \userAgent -> do
+    -- start a separate thread to pump msg from chat world to realworld
+    evsOut <- forkEventConsumer $ \evsOut -> do
+      (!subChan, !ev1) <- atomically (subscribeEvents evsOut)
+      let evToHuman !ev = case ev of
+            (EdhPair EdhNil (EdhString lastWords)) ->
+              -- this pattern from the world means chatter kicked
+              cutoffHuman userAgent lastWords
+            _ -> do
+              toHuman userAgent $ formatOutputToHuman ev
+              atomically (readTChan subChan) >>= evToHuman
+      case ev1 of
+        Just ev -> evToHuman ev
+        Nothing -> atomically (readTChan subChan) >>= evToHuman
+    -- wait until the chat world has started consuming events from `evsIn`
+    evsIn <- waitEventConsumer $ \evsIn ->
+      atomically
+        $ publishEvent evsAP -- show this new agent in to the chat world
+        $ EdhArgsPack -- use an arguments-pack as event data
+        $ ArgsPack    -- the data ctor
+                   [EdhSink evsIn, EdhSink evsOut] -- positional args
+                   Map.empty                       -- keyword args
+    -- now install `evsIn` as the drop target for each human input from realworld
     fromHuman userAgent $ atomically . publishEvent evsIn . parseInputFromHuman
     humanLeave userAgent $ atomically $ publishEvent evsIn $ EdhPair
       -- generate a quit command on forceful disconnection
       (EdhString "quit")
       (EdhTuple [])
-    -- show this new agent in to the chat world
-    atomically
-      $ publishEvent evsAP
-      $ EdhArgsPack -- use an arguments-pack as event data
-      $ ArgsPack    -- the data ctor
-                 [EdhSink evsIn, EdhSink evsOut] -- positional args
-                 Map.empty                       -- keyword args
-  return evsAP
- where
-  evsToHuman :: EventSink -> ChatUserAgent -> IO ()
-  evsToHuman !evsOut !userAgent = do
-    (!subChan, !ev1) <- atomically (subscribeEvents evsOut)
-    let evToHuman !ev = case ev of
-          (EdhPair EdhNil (EdhString lastWords)) ->
-            -- this pattern from the world means chatter kicked
-            cutoffHuman userAgent lastWords
-          _ -> do
-            toHuman userAgent $ formatOutputToHuman ev
-            atomically (readTChan subChan) >>= evToHuman
-    case ev1 of
-      Just ev -> evToHuman ev
-      Nothing -> atomically (readTChan subChan) >>= evToHuman
 
 
 -- | Create a chat world and run it
 runChatWorld :: ChatAccessPoint -> IO ()
-runChatWorld !accessPoint = defaultEdhLogger >>= createEdhWorld >>= \world ->
+runChatWorld !accessPoint = defaultEdhRuntime >>= createEdhWorld >>= \world ->
   do
     installEdhBatteries world
 
-    let withEdhErrorLogged :: Either InterpretError () -> IO ()
-        withEdhErrorLogged = \case
-          Left err -> atomically $ do
-            rt <- readTMVar $ worldRuntime world
-            runtimeLogger rt 50 Nothing
-              $ ArgsPack [EdhString $ T.pack $ show err] Map.empty
-          Right _ -> return ()
+    let withEdhLogged :: Either EdhError () -> IO ()
+        withEdhLogged result = do
+          case result of
+            Left err -> atomically $ logger 50 (Just "<the-hell>") $ ArgsPack
+              [EdhString $ T.pack $ show err]
+              Map.empty
+            Right _ -> pure ()
+          flushLogs
+          where EdhRuntime logger _ flushLogs = worldRuntime world
 
-    (withEdhErrorLogged =<<) $ bootEdhModule world "chat" >>= \case
+    (withEdhLogged =<<) $ bootEdhModule world "chat" >>= \case
       Left  !err  -> return $ Left err
       Right !modu -> do
-        moduCtx <- atomically $ moduleContext world modu
-        evsAP   <- adaptChatEvents accessPoint
-        (withEdhErrorLogged =<<) $ runEdhProgram moduCtx $ do
+        let !moduCtx = moduleContext world modu
+        -- the event producing will not start until `evsAP` is subscribed from
+        -- the chat world
+        evsAP <- forkEventProducer $ adaptChatEvents accessPoint
+        (withEdhLogged =<<) $ runEdhProgram moduCtx $ do
           pgs <- ask
           ctorRunCtrl evsAP $ \rcObj -> contEdhSTM $ do
             mthDismiss <- rcMethod pgs rcObj "dismiss"
@@ -315,50 +360,42 @@ runChatWorld !accessPoint = defaultEdhLogger >>= createEdhWorld >>= \world ->
 
             unsafeIOToSTM
               $ dismissAll accessPoint
-              $ (withEdhErrorLogged =<<)
+              $ (withEdhLogged =<<)
               $ runEdhProgram moduCtx
               $ do
                   pgs' <- ask
-                  contEdhSTM $ rcRun pgs' rcObj mthDismiss
+                  contEdhSTM $ runEdhProg pgs' $ callEdhMethod
+                    rcObj
+                    mthDismiss
+                    (ArgsPack [] Map.empty)
+                    edhEndOfProc
 
-            rcRun pgs rcObj mthRun
+            runEdhProg pgs $ callEdhMethod rcObj
+                                           mthRun
+                                           (ArgsPack [] Map.empty)
+                                           edhEndOfProc
         return $ Right ()
 
  where
 
-  -- | All rc methods are nullary, can be called uniformly
-  --
-  -- This can be written in simpler non-CPS as we're not
-  -- interested in the return value
-  rcRun :: EdhProgState -> Object -> Method -> STM ()
-  rcRun pgs rcObj (Method mth'lexi'stack mth'proc) =
-    runEdhProg pgs $ callEdhMethod (ArgsPack [] Map.empty)
-                                   rcObj
-                                   mth'lexi'stack
-                                   mth'proc
-                                   Nothing
-                                   edhNop
-
   -- | Get a method by name from rc object
   --
   -- This is done with simple TVar traversal, no need to go CPS
-  rcMethod :: EdhProgState -> Object -> Text -> STM Method
+  rcMethod :: EdhProgState -> Object -> Text -> STM ProcDefi
   rcMethod pgs rcObj mthName =
-    lookupEdhObjAttr rcObj (AttrByName mthName) >>= \case
-      Nothing ->
+    lookupEdhObjAttr pgs rcObj (AttrByName mthName) >>= \case
+      EdhNil ->
         throwEdhSTM pgs EvalError
           $  "Method `RunCtrl."
           <> mthName
           <> "()` not defined in chat.edh ?"
-      Just (EdhMethod mthVal) -> return mthVal
-      Just malVal ->
+      EdhMethod mthVal -> return mthVal
+      malVal ->
         throwEdhSTM pgs EvalError
           $  "Unexpected `RunCtrl."
           <> mthName
           <> "()`, it should be a method but found to be a "
-          <> T.pack (show $ edhTypeOf malVal)
-          <> ": "
-          <> T.pack (show malVal)
+          <> T.pack (edhTypeNameOf malVal)
 
   -- | Construct the rc object
   --
@@ -369,32 +406,81 @@ runChatWorld !accessPoint = defaultEdhLogger >>= createEdhWorld >>= \world ->
     pgs <- ask
     let !ctx   = edh'context pgs
         !scope = contextScope ctx
-    contEdhSTM $ lookupEdhCtxAttr scope (AttrByName "RunCtrl") >>= \case
-      Nothing -> throwEdhSTM pgs EvalError "No `RunCtrl` defined in chat.edh ?"
-      Just (EdhClass rcClass) ->
+    contEdhSTM $ lookupEdhCtxAttr pgs scope (AttrByName "RunCtrl") >>= \case
+      EdhNil -> throwEdhSTM pgs EvalError "No `RunCtrl` defined in chat.edh ?"
+      EdhClass rcClass ->
         runEdhProg pgs
-          $ constructEdhObject (ArgsPack [EdhSink evsAP] Map.empty) rcClass
+          $ constructEdhObject rcClass (ArgsPack [EdhSink evsAP] Map.empty)
           $ \(OriginalValue !val _ _) -> case val of
               EdhObject rcObj -> exit rcObj
               _ ->
                 throwEdh EvalError
-                  $  "Expecting an object be constructed by `RunCtrl`, but got "
-                  <> T.pack (show $ edhTypeOf val)
-                  <> ": "
-                  <> T.pack (show val)
-      Just malVal ->
+                  $ "Expecting an object be constructed by `RunCtrl`, but got a "
+                  <> T.pack (edhTypeNameOf val)
+      malVal ->
         throwEdhSTM pgs EvalError
           $ "Unexpected `RunCtrl` as defined in chat.edh, it should be a class but found to be a "
-          <> T.pack (show $ edhTypeOf malVal)
-          <> ": "
-          <> T.pack (show malVal)
+          <> T.pack (edhTypeNameOf malVal)
 ```
 
-### World reifying code in Haskell (193 LoC)
+### World reifying code in Haskell (190 LoC)
 
 https://github.com/e-wrks/edhim/blob/master/edhim/src/Main.hs
 
 ```haskell
+{-# LANGUAGE QuasiQuotes #-}
+
+-- | This main module further reifies the modeled Edh world
+-- from 'ChatWorld' to run upon a technology stack at present
+-- (year 2020), i.e.
+--  *) POSIX
+--    *) process w/ signals
+--    *) network sockets
+--  *) the websockets toolkit
+--  *) the Snap http server
+--  *) HTML5 browser client
+--    *) CSS
+--    *) JavaScript
+--    *) WebSockets
+
+module Main
+  ( main
+  )
+where
+
+import           Prelude
+import           Debug.Trace
+
+import           System.IO                      ( stderr )
+
+import           System.Clock
+
+import           Control.Exception
+import           Control.Monad
+import           Control.Concurrent
+import           System.Posix.Signals
+
+import           Data.IORef
+import           Data.Text.IO
+import           Data.Text                      ( Text )
+import qualified Data.Text                     as T
+import qualified Data.Text.Lazy                as TL
+import           Data.Text.Encoding
+
+import qualified Data.ByteString.Char8         as B
+import qualified Data.ByteString.Lazy          as BL
+
+import           Network.Socket
+import qualified Network.WebSockets            as WS
+
+import qualified Snap.Core                     as Snap
+import qualified Snap.Http.Server              as Snap
+
+import           NeatInterpolation
+
+import           ChatWorld
+
+
 servAddr = "0.0.0.0"
 wsPort = 8687
 httpPort = 8688
@@ -402,8 +488,8 @@ httpPort = 8688
 servAddr :: Text
 wsPort, httpPort :: Int
 
-servWebSockets :: IO ()
-servWebSockets = runChatWorld $ ChatAccessPoint handleCtrlC $ \agentEntry -> do
+servWebSockets :: (ChatUserAgent -> IO ()) -> IO ()
+servWebSockets !agentEntry = do
   let acceptWSC sock = do
         (conn, _) <- accept sock
         void $ forkFinally (handleWSC conn) $ \wsResult -> do
@@ -464,7 +550,7 @@ servWebSockets = runChatWorld $ ChatAccessPoint handleCtrlC $ \agentEntry -> do
         -- notify the world anyway
         tryReadMVar disconnectNotif >>= sequence_
 
-  void $ forkIO $ withSocketsDo $ do
+  withSocketsDo $ do
     addr <- resolveWsAddr
     bracket (open addr) close acceptWSC
 
@@ -516,9 +602,9 @@ main = do
 
   -- we're handling Ctrl^C below for server purge action in the chat world,
   -- it needs to run from the main thread, so snap http is forked to a side
-  -- thread above
+  -- thread above.
 
-  servWebSockets
+  runChatWorld $ ChatAccessPoint handleCtrlC servWebSockets
 
  where
 
@@ -585,6 +671,7 @@ Refresh the page to reconnect.`)
   })
 </script>
 |]
+
 
 consoleLog :: Text -> IO ()
 consoleLog = hPutStrLn stderr
