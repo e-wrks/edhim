@@ -1,20 +1,29 @@
-# this ctor bootstraps the chat world
-class RunCtrl {
-  method __init__ (accessPoint as this.accessPoint) pass
 
-  chatters = {,}  # the dict of all chatters by name
+# entry point for all agents
+accessPoint := sink
 
-  method dismiss () {  # this is called on Ctrl^C at the console
-    runtime.info <| 'Dismissing all active chatters'
-    ai {  # use a tx, don't get a racing joining chatter lost/leaked
-      committee = this.chatters
-      this.chatters = {,}
-    }
-    for (_name, chatter) from committee do if chatter!=nil then
-      chatter.kicked <- 'server purge'
+# signal to dismiss all live chatters atm
+dismiss := sink
+
+# signal to shutdown this chat instance
+shutdown := sink
+
+# indicating whether the business is running or not
+running := sink
+running <- false  # unflag it now
+
+
+# encapsulate the business logic with classes
+class ChatBusiness {
+
+  chatters = {}  # the dict of all chatters by name
+
+  method __repr__ () {
+    chatterNames = () =< for (name, _) from chatters do ' 🧑 '++name
+    ' 🙌 Chat 🙌 connected users:\n' ++ join(**chatterNames, sep='\n')
   }
 
-  # this ctor allocates a private namespace (object) for a new user session
+  # encapsulate the business logic for a single chatter with this nested class
   class Chat {
 
     kicked = sink  # create a new sink for kicked-out event
@@ -105,12 +114,46 @@ class RunCtrl {
 
   }
 
-  method run () { # this is the method to keep the world running
+  # this method keeps the business running, should be run from a separate thread,
+  # i.e. `go biz.run()`
+  method run () {
+
+    # mark the business not running on this thread's termination
+    defer { running <- false }
+
+    # this is used to mark the start of business running
+    producer inception(outlet) {
+      # a producer procedure is only executed after the specified outlet (an
+      # event sink per se) got a new subscriber, after the producer was called,
+      # so `running` is flagged with sure that new subscriber won't miss out
+      # any event posted to the sink afterwards
+      running <- true
+    }
+
+    # react to dismiss signal, kick all live chatters
+    reactor dismiss (***_) {
+      runtime.info <| 'Dismissing all active chatters'
+      ai {  # use a tx, don't get a racing joining chatter lost/leaked
+        committee = this.chatters
+        this.chatters = {}
+      }
+      for (_name, chatter) from committee do if chatter!=nil then
+        chatter.kicked <- 'server purge'
+    }
+
+    # react to shutdown signal, just break this thread
+    reactor shutdown (***_) { break }
+
     # each time a new agent enters the chat world, a pair of sinks for its
     # incoming and outgoing messages are posted through the sink of access point
-    for (in, out) from accessPoint do {
+    for (in, out) from inception(outlet=accessPoint) do {
       go Chat(in, out)  # start a chatter thread to do the IO
       in=nil out=nil  # unref so they're garbage-collectable after chatter left
     }
+
   }
+
 }
+
+# the singleton business instance
+biz := ChatBusiness()

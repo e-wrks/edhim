@@ -14,7 +14,6 @@ import           Control.Concurrent.STM
 
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
-
 import qualified Data.HashMap.Strict           as Map
 
 import           Language.Edh.EHI
@@ -39,10 +38,8 @@ type OutputToHuman = Text
 
 -- | Joint physics of the only gate in a chat world 
 data ChatAccessPoint = ChatAccessPoint {
-      dismissAll :: IO () -- ^ the action to kick all chatters out
-                 -> IO () -- ^ the action installer
-    , accomodateAgents :: (ChatUserAgent -> IO ()) -- ^ the entry
-                       -> IO () -- ^ the blocking accomodate action
+    accomodateAgents :: (ChatUserAgent -> IO ()) -- ^ the entry
+                     -> IO () -- ^ the blocking accomodate action
   }
 
 -- | Joint physics of a user agent in a chat world
@@ -109,94 +106,25 @@ adaptChatEvents !accessPoint !evsAP =
 
 
 -- | Create a chat world and run it
-runChatWorld :: ChatAccessPoint -> IO ()
-runChatWorld !accessPoint = defaultEdhRuntime >>= createEdhWorld >>= \world ->
-  do
-    installEdhBatteries world
+runChatWorld :: EdhRuntime -> ChatAccessPoint -> IO ()
+runChatWorld !runtime !accessPoint = do
+  world <- createEdhWorld runtime
+  installEdhBatteries world
 
-    let withEdhLogged :: Either EdhError () -> IO ()
-        withEdhLogged result = do
-          case result of
-            Left err -> atomically $ logger 50 (Just "<the-hell>") $ ArgsPack
-              [EdhString $ T.pack $ show err]
-              Map.empty
-            Right _ -> pure ()
-          flushLogs
-          where EdhRuntime logger _ flushLogs = worldRuntime world
+  -- TODO obtain the signals from 'chat/business' module,
+  --  * get `accessPoint` `running`,
+  --  * wait until running is flagged true,
+  --  * call `adaptChatEvents` 
+  let evsAP :: EventSink = undefined
 
-    (withEdhLogged =<<) $ bootEdhModule world "chat" >>= \case
-      Left  !err  -> return $ Left err
-      Right !modu -> do
-        let !moduCtx = moduleContext world modu
-        -- the event producing will not start until `evsAP` is subscribed from
-        -- the chat world
-        evsAP <- forkEventProducer $ adaptChatEvents accessPoint
-        (withEdhLogged =<<) $ runEdhProgram moduCtx $ do
-          pgs <- ask
-          ctorRunCtrl evsAP $ \rcObj -> contEdhSTM $ do
-            mthDismiss <- rcMethod pgs rcObj "dismiss"
-            mthRun     <- rcMethod pgs rcObj "run"
+  adaptChatEvents accessPoint evsAP
 
-            unsafeIOToSTM
-              $ dismissAll accessPoint
-              $ (withEdhLogged =<<)
-              $ runEdhProgram moduCtx
-              $ do
-                  pgs' <- ask
-                  contEdhSTM $ runEdhProg pgs' $ callEdhMethod
-                    rcObj
-                    mthDismiss
-                    (ArgsPack [] Map.empty)
-                    edhEndOfProc
-
-            runEdhProg pgs $ callEdhMethod rcObj
-                                           mthRun
-                                           (ArgsPack [] Map.empty)
-                                           edhEndOfProc
-        return $ Right ()
-
- where
-
-  -- | Get a method by name from rc object
-  -- 
-  -- This is done with simple TVar traversal, no need to go CPS
-  rcMethod :: EdhProgState -> Object -> Text -> STM ProcDefi
-  rcMethod pgs rcObj mthName =
-    lookupEdhObjAttr pgs rcObj (AttrByName mthName) >>= \case
-      EdhNil ->
-        throwEdhSTM pgs EvalError
-          $  "Method `RunCtrl."
-          <> mthName
-          <> "()` not defined in chat.edh ?"
-      EdhMethod mthVal -> return mthVal
-      malVal ->
-        throwEdhSTM pgs EvalError
-          $  "Unexpected `RunCtrl."
-          <> mthName
-          <> "()`, it should be a method but found to be a "
-          <> T.pack (edhTypeNameOf malVal)
-
-  -- | Construct the rc object
-  --
-  -- This has to be written in CPS to receive the return value from the
-  -- class procedure written in Edh
-  ctorRunCtrl :: EventSink -> (Object -> EdhProg (STM ())) -> EdhProg (STM ())
-  ctorRunCtrl !evsAP !exit = do
-    pgs <- ask
-    let !ctx   = edh'context pgs
-        !scope = contextScope ctx
-    contEdhSTM $ lookupEdhCtxAttr pgs scope (AttrByName "RunCtrl") >>= \case
-      EdhNil -> throwEdhSTM pgs EvalError "No `RunCtrl` defined in chat.edh ?"
-      EdhClass rcClass ->
-        runEdhProg pgs
-          $ constructEdhObject rcClass (ArgsPack [EdhSink evsAP] Map.empty)
-          $ \(OriginalValue !val _ _) -> case val of
-              EdhObject rcObj -> exit rcObj
-              _ ->
-                throwEdh EvalError
-                  $ "Expecting an object be constructed by `RunCtrl`, but got a "
-                  <> T.pack (edhTypeNameOf val)
-      malVal ->
-        throwEdhSTM pgs EvalError
-          $ "Unexpected `RunCtrl` as defined in chat.edh, it should be a class but found to be a "
-          <> T.pack (edhTypeNameOf malVal)
+  runEdhModule world "chat" >>= \case
+    Left  !err -> atomically $ writeTQueue ioQ $ ConsoleOut $ T.pack $ show err
+    Right phv  -> case edhUltimate phv of
+      EdhNil -> pure () -- clean program halt, all done
+      _      -> -- unclean program exit
+                atomically $ writeTQueue ioQ $ ConsoleOut $ case phv of
+        EdhString msg -> msg
+        _             -> T.pack $ show phv
+  where ioQ = consoleIO runtime

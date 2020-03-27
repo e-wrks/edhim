@@ -4,7 +4,7 @@
 -- from 'ChatWorld' to run upon a technology stack at present
 -- (year 2020), i.e.
 --  *) POSIX
---    *) process w/ signals
+--    *) process w/ std console io
 --    *) network sockets
 --  *) the websockets toolkit
 --  *) the Snap http server
@@ -46,10 +46,22 @@ import qualified Network.WebSockets            as WS
 import qualified Snap.Core                     as Snap
 import qualified Snap.Http.Server              as Snap
 
+import           System.Console.Haskeline       ( runInputT
+                                                , Settings(..)
+                                                , outputStrLn
+                                                )
+
 import           NeatInterpolation
 
 import           ChatWorld
 
+
+-- haskeline settings for console io
+inputSettings :: Settings IO
+inputSettings = Settings { complete       = \(_left, _right) -> return ("", [])
+                         , historyFile    = Nothing
+                         , autoAddHistory = True
+                         }
 
 servAddr = "0.0.0.0"
 wsPort = 8687
@@ -140,41 +152,29 @@ servWebSockets !agentEntry = do
     return sock
 
 
--- | Triple Ctrl^C to kill the server; double Ctrl^C to quit the server;
--- single Ctrl^C to dismiss all atm, i.e. a server purge.
-handleCtrlC :: IO () -> IO ()
-handleCtrlC !serverPurge = do
-  mainThId          <- myThreadId
-  cccVar            <- newIORef (0 :: Int) -- Ctrl^C Count
-  lastInterruptTime <- (sec <$> getTime Monotonic) >>= newIORef
-  let onCtrlC = do
-        lastSec <- readIORef lastInterruptTime
-        nowSec  <- sec <$> getTime Monotonic
-        writeIORef lastInterruptTime nowSec
-        if nowSec - lastSec < 2 -- count quickly repeated Ctrl^C clicks
-          then modifyIORef' cccVar (+ 1)
-          else writeIORef cccVar 1
-        ccc <- readIORef cccVar
-        if ccc >= 3 -- tripple click
-          then killThread mainThId
-          else if ccc >= 2 -- double click
-            then throwTo mainThId UserInterrupt
-            else -- single click
-                 serverPurge
-  void $ installHandler keyboardSignal (Catch onCtrlC) Nothing
-
-
 main :: IO ()
 main = do
   void $ forkIO $ Snap.httpServe httpCfg $ Snap.path "" $ do
     Snap.modifyResponse $ Snap.setContentType "text/html; charset=utf-8"
     Snap.writeText html
 
-  -- we're handling Ctrl^C below for server purge action in the chat world,
-  -- it needs to run from the main thread, so snap http is forked to a side
-  -- thread above.
+  -- we need the main thread to run Edh console IO loop, so snap http is
+  -- forked to a side thread above.
 
-  runChatWorld $ ChatAccessPoint handleCtrlC servWebSockets
+  runtime <- defaultEdhRuntime
+  void
+    $ forkFinally (runChatWorld runtime $ ChatAccessPoint servWebSockets)
+    $ \result -> do
+        case result of
+          Left (e :: SomeException) ->
+            atomically $ writeTQueue ioQ $ ConsoleOut $ "💥 " <> T.pack (show e)
+          Right _ -> pure ()
+        -- shutdown console IO anyway
+        atomically $ writeTQueue ioQ ConsoleShutdown
+
+  runInputT inputSettings $ do
+    defaultEdhIOLoop runtime
+  flushRuntimeLogs runtime
 
  where
 

@@ -1,0 +1,36 @@
+
+import * './business'
+
+# automatically start the instance of business
+go biz.run()
+
+while true {  # provide console interface from this loop
+
+  {
+
+    for cmd from runtime.readCommands(ps1="(chat)Đ: ", ps2="(chat)Đ| ")
+      do case type(cmd) of {
+        nil -> { continue }
+        runtime.print( cmd )
+    }
+
+  } $=> {  # catch exceptions
+
+    {{ ProgramHalt: ph }} -> {
+      throw ph  # escalate a halt to the program loop of the
+      # host interpreter, let it decide what to do.
+    }
+
+    {{ IOError:exc }} -> {
+      runtime.fatal <| 'IO error - ' ++ exc
+      throw exc  # escalate it to the program loop of the
+      # host interpreter, let it decide what to do.
+    }
+
+    { exc } -> {
+      runtime.print( 'Recovered from error', exception=exc )
+    }
+
+  }
+
+}
