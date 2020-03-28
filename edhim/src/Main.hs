@@ -23,14 +23,11 @@ import           Debug.Trace
 
 import           System.IO                      ( stderr )
 
-import           System.Clock
-
 import           Control.Exception
 import           Control.Monad
 import           Control.Concurrent
-import           System.Posix.Signals
+import           Control.Concurrent.STM
 
-import           Data.IORef
 import           Data.Text.IO
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
@@ -46,22 +43,12 @@ import qualified Network.WebSockets            as WS
 import qualified Snap.Core                     as Snap
 import qualified Snap.Http.Server              as Snap
 
-import           System.Console.Haskeline       ( runInputT
-                                                , Settings(..)
-                                                , outputStrLn
-                                                )
-
 import           NeatInterpolation
+
+import           Language.Edh.EHI
 
 import           ChatWorld
 
-
--- haskeline settings for console io
-inputSettings :: Settings IO
-inputSettings = Settings { complete       = \(_left, _right) -> return ("", [])
-                         , historyFile    = Nothing
-                         , autoAddHistory = True
-                         }
 
 servAddr = "0.0.0.0"
 wsPort = 8687
@@ -161,20 +148,24 @@ main = do
   -- we need the main thread to run Edh console IO loop, so snap http is
   -- forked to a side thread above.
 
-  runtime <- defaultEdhRuntime
+  console <- defaultEdhConsole defaultEdhConsoleSettings
+  let consoleOut = writeTQueue (consoleIO console) . ConsoleOut
+
   void
-    $ forkFinally (runChatWorld runtime $ ChatAccessPoint servWebSockets)
+    $ forkFinally (runChatWorld console $ ChatAccessPoint servWebSockets)
     $ \result -> do
         case result of
           Left (e :: SomeException) ->
-            atomically $ writeTQueue ioQ $ ConsoleOut $ "💥 " <> T.pack (show e)
+            atomically $ consoleOut $ "💥 " <> T.pack (show e)
           Right _ -> pure ()
         -- shutdown console IO anyway
-        atomically $ writeTQueue ioQ ConsoleShutdown
+        atomically $ writeTQueue (consoleIO console) ConsoleShutdown
 
-  runInputT inputSettings $ do
-    defaultEdhIOLoop runtime
-  flushRuntimeLogs runtime
+  atomically $ do
+    consoleOut ">> Đ (Edh) doing Chat <<\n"
+    consoleOut " * Ctrl^D to forcefully quit this server.\n"
+
+  consoleIOLoop console
 
  where
 

@@ -20,7 +20,7 @@ class ChatBusiness {
 
   method __repr__ () {
     chatterNames = () =< for (name, _) from chatters do ' 🧑 '++name
-    ' 🙌 Chat 🙌 connected users:\n' ++ join(**chatterNames, sep='\n')
+    ' 🙌 Chat 🙌 connected users:\n' ++ join(*chatterNames, sep='\n')
   }
 
   # encapsulate the business logic for a single chatter with this nested class
@@ -29,7 +29,7 @@ class ChatBusiness {
     kicked = sink  # create a new sink for kicked-out event
 
     reactor kicked reason {
-      runtime.debug <| 'Done with ' ++name++ ' - ' ++reason
+      console.debug <| 'Done with ' ++name++ ' - ' ++reason
       # posting a nil:<str> pair as the msg out, to trigger `cutoffHuman`
       # mechanism defined for the agency model
       out <- nil: if reason != nil
@@ -60,13 +60,13 @@ class ChatBusiness {
             'quit' -> nil  # human left without answering the name
             fallthrough  # other malicious cmds
           } 
-          runtime.warn <| 'Some one tried to use name: ' ++ name
+          console.warn <| 'Some one tried to use name: ' ++ name
           'misbehaving, adversarial name - ' ++ name
         }
       }
 
       defer {  # defered code is guaranteed to run on thread termination
-        runtime.debug <| 'Cleaning up for ' ++ name
+        console.debug <| 'Cleaning up for ' ++ name
         # need a tx to not cleanup a later live chatter with same name
         ai if chatters[name] == this then chatters[name] = nil
       }
@@ -119,7 +119,11 @@ class ChatBusiness {
   method run () {
 
     # mark the business not running on this thread's termination
-    defer { running <- false }
+    defer {
+      running <- false
+      console.warn <| 'The entrance has been closed, new comers are not served.'
+      console.info <| 'Key in the command `go biz.run()` to restore the service.'
+    }
 
     # this is used to mark the start of business running
     producer inception(outlet) {
@@ -132,13 +136,14 @@ class ChatBusiness {
 
     # react to dismiss signal, kick all live chatters
     reactor dismiss (***_) {
-      runtime.info <| 'Dismissing all active chatters'
+      console.warn <| 'Dismissing all active chatters'
       ai {  # use a tx, don't get a racing joining chatter lost/leaked
         committee = this.chatters
         this.chatters = {}
       }
       for (_name, chatter) from committee do if chatter!=nil then
         chatter.kicked <- 'server purge'
+      console.info <| 'Server purged.'
     }
 
     # react to shutdown signal, just break this thread

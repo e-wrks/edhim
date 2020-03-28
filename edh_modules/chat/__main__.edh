@@ -1,36 +1,34 @@
 
 import * './business'
 
-# automatically start the instance of business
+# start the business in background of this repl session's
+# Edh program
 go biz.run()
 
-while true {  # provide console interface from this loop
+while true {  # this is the *Loop* in so-called REPL
+  # Read+Eval (console.readCommand) -> Print (console.print) -> Loop -^
 
-  {
+  case console.readCommand(ps1="(chats)Đ: ", ps2="(chats)Đ| ")
+    of { cmd } -> {  # note a nil will fallthrough here
+    console.print( cmd )
+    cmd = nil  # clear it
+  }
 
-    for cmd from runtime.readCommands(ps1="(chat)Đ: ", ps2="(chat)Đ| ")
-      do case type(cmd) of {
-        nil -> { continue }
-        runtime.print( cmd )
-    }
+} $=> {  # catch exceptions
 
-  } $=> {  # catch exceptions
+  {{ ProgramHalt: ph }} -> {
+    throw ph  # escalate a halt to the program loop of the
+    # host interpreter, let it decide what to do.
+  }
 
-    {{ ProgramHalt: ph }} -> {
-      throw ph  # escalate a halt to the program loop of the
-      # host interpreter, let it decide what to do.
-    }
+  {{ IOError:exc }} -> {
+    console.fatal <| 'IO error - ' ++ exc
+    throw exc  # escalate it to the program loop of the
+    # host interpreter, let it decide what to do.
+  }
 
-    {{ IOError:exc }} -> {
-      runtime.fatal <| 'IO error - ' ++ exc
-      throw exc  # escalate it to the program loop of the
-      # host interpreter, let it decide what to do.
-    }
-
-    { exc } -> {
-      runtime.print( 'Recovered from error', exception=exc )
-    }
-
+  { exc } -> {
+    console.print( 'Recovered from error', exception=exc )
   }
 
 }

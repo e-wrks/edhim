@@ -6,10 +6,10 @@ module ChatWorld where
 import           Prelude
 -- import           Debug.Trace
 
-import           GHC.Conc                       ( unsafeIOToSTM )
-
 import           Control.Monad.Reader
 
+import           Control.Exception
+import           Control.Concurrent
 import           Control.Concurrent.STM
 
 import           Data.Text                      ( Text )
@@ -17,6 +17,11 @@ import qualified Data.Text                     as T
 import qualified Data.HashMap.Strict           as Map
 
 import           Language.Edh.EHI
+
+
+-- the Edh module name to be run as the console
+consoleModule :: String
+consoleModule = "chat"
 
 
 -- * In this simple case, the input/output items between humans in the
@@ -106,25 +111,85 @@ adaptChatEvents !accessPoint !evsAP =
 
 
 -- | Create a chat world and run it
-runChatWorld :: EdhRuntime -> ChatAccessPoint -> IO ()
-runChatWorld !runtime !accessPoint = do
-  world <- createEdhWorld runtime
+runChatWorld :: EdhConsole -> ChatAccessPoint -> IO ()
+runChatWorld !console !accessPoint = do
+  world <- createEdhWorld console
   installEdhBatteries world
 
-  -- TODO obtain the signals from 'chat/business' module,
-  --  * get `accessPoint` `running`,
-  --  * wait until running is flagged true,
-  --  * call `adaptChatEvents` 
-  let evsAP :: EventSink = undefined
+  -- XXX here to install worshipped host modules and other artifacts
 
-  adaptChatEvents accessPoint evsAP
+  -- the Chat demo is so simple that no host module/procedure is defined,
+  -- we just grab event sinks defined by the Edh modules and work with
+  -- them from the host side
+  bizArts <- runEdhProgram (worldContext world) $ do
+    pgs <- ask
+    importEdhModule "chat/business" $ \(OriginalValue moduVal _ _) ->
+      case moduVal of
+        EdhObject modu ->
+          contEdhSTM
+            $   sequence
+                  (   fmap edhUltimate
+                  .   lookupEdhObjAttr pgs modu
+                  .   AttrByName
+                  <$> ["accessPoint", "running"]
+                  )
+            >>= \case
+                  got@[EdhSink _evsAP, EdhSink _evsRunning] ->
+                    haltEdhProgram $ EdhTuple got
+                  _ -> throwEdhSTM
+                    pgs
+                    UsageError
+                    "Missing accessPoint/running sink from chat/business module!"
+        _ -> error "bug: importEdhModule returned non-object"
 
-  runEdhModule world "chat" >>= \case
-    Left  !err -> atomically $ writeTQueue ioQ $ ConsoleOut $ T.pack $ show err
-    Right phv  -> case edhUltimate phv of
-      EdhNil -> pure () -- clean program halt, all done
-      _      -> -- unclean program exit
-                atomically $ writeTQueue ioQ $ ConsoleOut $ case phv of
-        EdhString msg -> msg
-        _             -> T.pack $ show phv
-  where ioQ = consoleIO runtime
+  -- fork the GHC thread to do event pumping
+  void $ forkIO $ case bizArts of
+    Left  err -> throwIO err
+    Right (EdhTuple [EdhSink evsAP, EdhSink evsRunning]) -> do
+      -- wait until the business has started running
+      atomically (subscribeEvents evsRunning) >>= \(sr, maybeRunning) ->
+        case maybeRunning of
+          Just (EdhBool True) -> pure ()
+          _                   -> atomically $ readTChan sr >>= \case
+            EdhBool True -> return ()
+            _            -> retry
+      -- pump business events
+      adaptChatEvents accessPoint evsAP
+    _ -> throwIO $ EdhError UsageError "abnormal" $ EdhCallContext "<host>" []
+
+  -- here being the host interpreter, we loop infinite runs of the Edh
+  -- console REPL program, unless cleanly shutdown, for resilience
+  let doneRightOrRebirth = runEdhModule world consoleModule >>= \case
+    -- to run a module is to seek its `__main__.edh` and execute the
+    -- code there in a volatile module context, it can import itself
+    -- (i.e. `__init__.edh`) during the run. all imported modules can
+    -- survive program crashes.
+        Left !err -> do -- program crash on error
+          atomically $ do
+            consoleOut "Your program crashed with an error:\n"
+            consoleOut $ T.pack $ show err <> "\n"
+            -- the world with all modules ever imported, is still
+            -- there, repeat another repl session with this world.
+            -- it may not be a good idea, but just so so ...
+            consoleOut "🐴🐴🐯🐯\n"
+          doneRightOrRebirth
+        Right !phv -> case edhUltimate phv of
+          EdhNil -> atomically $ do
+            -- clean program halt, all done
+            consoleOut "Well done, bye.\n"
+            consoleShutdown
+          _ -> do -- unclean program exit
+            atomically $ do
+              consoleOut "Your program halted with a result:\n"
+              consoleOut $ (<> "\n") $ case phv of
+                EdhString msg -> msg
+                _             -> T.pack $ show phv
+            -- the world with all modules ever imported, is still
+            -- there, repeat another repl session with this world.
+            -- it may not be a good idea, but just so so ...
+              consoleOut "🐴🐴🐯🐯\n"
+            doneRightOrRebirth
+  doneRightOrRebirth
+ where
+  consoleOut      = writeTQueue (consoleIO console) . ConsoleOut
+  consoleShutdown = writeTQueue (consoleIO console) ConsoleShutdown
