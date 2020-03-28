@@ -21,20 +21,16 @@ where
 import           Prelude
 import           Debug.Trace
 
-import           System.IO                      ( stderr )
-
 import           Control.Exception
 import           Control.Monad
 import           Control.Concurrent
 import           Control.Concurrent.STM
 
-import           Data.Text.IO
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
 import qualified Data.Text.Lazy                as TL
 import           Data.Text.Encoding
 
-import qualified Data.ByteString.Char8         as B
 import qualified Data.ByteString.Lazy          as BL
 
 import           Network.Socket
@@ -57,8 +53,8 @@ httpPort = 8688
 servAddr :: Text
 wsPort, httpPort :: Int
 
-servWebSockets :: (ChatUserAgent -> IO ()) -> IO ()
-servWebSockets !agentEntry = do
+servWebSockets :: (Text -> IO ()) -> (ChatUserAgent -> IO ()) -> IO ()
+servWebSockets !consoleLog !agentEntry = do
   let acceptWSC sock = do
         (conn, _) <- accept sock
         void $ forkFinally (handleWSC conn) $ \wsResult -> do
@@ -141,45 +137,48 @@ servWebSockets !agentEntry = do
 
 main :: IO ()
 main = do
+  -- we need the main thread to run Edh console IO loop, snap http and
+  -- the Edh world will run in side threads.
+
+  console <- defaultEdhConsole defaultEdhConsoleSettings
+  let consoleOut = atomically . writeTQueue (consoleIO console) . ConsoleOut
+      consoleLog =
+        atomically
+          . consoleLogger console 20 Nothing
+          . (flip ArgsPack mempty . (: []) . EdhString)
+
+      !httpCfg =
+        Snap.setBind (encodeUtf8 servAddr)
+          $ Snap.setPort httpPort
+          $ Snap.setStartupHook httpListening
+          $ Snap.setVerbose False
+          $ Snap.setAccessLog Snap.ConfigNoLog
+          $ Snap.setErrorLog (Snap.ConfigIoLog $ consoleLog . decodeUtf8) mempty
+      httpListening httpInfo = do
+        listenAddrs <- sequence
+          (getSocketName <$> Snap.getStartupSockets httpInfo)
+        consoleLog $ "Đ - Im available at: " <> T.unwords
+          (("http://" <>) . T.pack . show <$> listenAddrs)
+
   void $ forkIO $ Snap.httpServe httpCfg $ Snap.path "" $ do
     Snap.modifyResponse $ Snap.setContentType "text/html; charset=utf-8"
     Snap.writeText html
 
-  -- we need the main thread to run Edh console IO loop, so snap http is
-  -- forked to a side thread above.
-
-  console <- defaultEdhConsole defaultEdhConsoleSettings
-  let consoleOut = writeTQueue (consoleIO console) . ConsoleOut
-
   void
-    $ forkFinally (runChatWorld console $ ChatAccessPoint servWebSockets)
+    $ forkFinally
+        (runChatWorld console $ ChatAccessPoint (servWebSockets consoleLog))
     $ \result -> do
         case result of
-          Left (e :: SomeException) ->
-            atomically $ consoleOut $ "💥 " <> T.pack (show e)
-          Right _ -> pure ()
+          Left  (e :: SomeException) -> consoleOut $ "💥 " <> T.pack (show e)
+          Right _                    -> pure ()
         -- shutdown console IO anyway
         atomically $ writeTQueue (consoleIO console) ConsoleShutdown
 
-  atomically $ do
-    consoleOut ">> Đ (Edh) doing Chat <<\n"
-    consoleOut " * Ctrl^D to forcefully quit this server.\n"
+  consoleLog " * Ctrl^D to forcefully quit this server."
 
   consoleIOLoop console
 
  where
-
-  !httpCfg =
-    Snap.setBind (encodeUtf8 servAddr)
-      $ Snap.setPort httpPort
-      $ Snap.setStartupHook httpListening
-      $ Snap.setVerbose False
-      $ Snap.setAccessLog Snap.ConfigNoLog
-      $ Snap.setErrorLog (Snap.ConfigIoLog $ B.hPutStrLn stderr) mempty
-  httpListening httpInfo = do
-    listenAddrs <- sequence (getSocketName <$> Snap.getStartupSockets httpInfo)
-    consoleLog $ "Đ - Im available at: " <> T.unwords
-      (("http://" <>) . T.pack . show <$> listenAddrs)
 
   !(wsSuffix :: Text) = ":" <> T.pack (show wsPort)
 
@@ -232,8 +231,3 @@ Refresh the page to reconnect.`)
   })
 </script>
 |]
-
-
-consoleLog :: Text -> IO ()
-consoleLog = hPutStrLn stderr
-
