@@ -28,14 +28,14 @@ class ChatBusiness {
 
     kicked = sink  # create a new sink for kicked-out event
 
-    reactor kicked {
+    perceive kicked {
       reason = None  # in case a nil is posted to `kicked`
       { reason } -> { fallthrough }  # grab the reason if provided
       console.debug <| 'Done with ' ++name++ ' for reason: ' ++reason
       # posting a nil:<str> pair as the msg out, to trigger `cutoffHuman`
       # mechanism defined for the agency model
       out <- nil: reason &> ("You have been kicked: " ++ reason) |> ''
-      break  # `break` from a reactor breaks the thread, 'Chat' then stops
+      break  # `break` from a perceiver breaks the thread, 'Chat' then stops
     }
 
     method __init__ (
@@ -135,7 +135,7 @@ class ChatBusiness {
     }
 
     # react to dismiss signal, kick all live chatters
-    reactor dismiss {
+    perceive dismiss {
       console.warn <| 'Dismissing all active chatters'
       ai {  # use a tx, don't get a racing joining chatter lost/leaked
         committee = this.chatters
@@ -147,7 +147,7 @@ class ChatBusiness {
     }
 
     # react to shutdown signal, just break this thread
-    reactor shutdown { break }
+    perceive shutdown { break }
 
     # each time a new agent enters the chat world, a pair of sinks for its
     # incoming and outgoing messages are posted through the sink of access point
